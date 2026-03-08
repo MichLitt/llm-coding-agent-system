@@ -1,46 +1,22 @@
-"""File system tools: read, write/edit, and list directory.
-
-All file paths are validated against the workspace root to prevent the
-agent from escaping the sandbox.
-
-Tools
------
-ReadFileTool   — Read a file's contents (with optional line limit).
-WriteFileTool  — Create or overwrite a file; or make a targeted text edit.
-ListDirTool    — List files and subdirectories with optional depth control.
-"""
+"""File system tools: read, write/edit, and list directory."""
 
 from pathlib import Path
 
-import config
-from .base import Tool
+from coder_agent.config import cfg
+from coder_agent.tools.base import Tool
+
+_WORKSPACE = cfg.agent.workspace
 
 
 def _safe_path(path: str) -> Path | None:
-    """Resolve path and verify it stays inside the workspace.
-
-    Accepts relative paths (resolved against workspace root) or absolute paths
-    that already point inside the workspace. Returns None if the path escapes
-    the sandbox.
-    """
     p = Path(path)
-    full = p.resolve() if p.is_absolute() else (config.WORKSPACE / path).resolve()
-    if not full.is_relative_to(config.WORKSPACE):
+    full = p.resolve() if p.is_absolute() else (_WORKSPACE / path).resolve()
+    if not full.is_relative_to(_WORKSPACE):
         return None
     return full
 
 
 class ReadFileTool(Tool):
-    """Read a file from the workspace.
-
-    Input schema parameters
-    -----------------------
-    path : str
-        Path to the file (relative to workspace root).
-    max_lines : int, optional
-        Maximum number of lines to return. 0 = no limit (default).
-    """
-
     def __init__(self):
         super().__init__(
             name="read_file",
@@ -76,23 +52,6 @@ class ReadFileTool(Tool):
 
 
 class WriteFileTool(Tool):
-    """Create/overwrite a file, or perform a targeted text replacement.
-
-    Input schema parameters
-    -----------------------
-    operation : "write" | "edit"
-        * write — create or fully overwrite the file with `content`.
-        * edit  — replace the first occurrence of `old_text` with `new_text`.
-    path : str
-        Target file path (relative to workspace root).
-    content : str, optional
-        Full file content for the "write" operation.
-    old_text : str, optional
-        Exact text to find for the "edit" operation.
-    new_text : str, optional
-        Replacement text for the "edit" operation.
-    """
-
     def __init__(self):
         super().__init__(
             name="write_file",
@@ -110,14 +69,7 @@ class WriteFileTool(Tool):
             },
         )
 
-    async def execute(
-        self,
-        operation: str,
-        path: str,
-        content: str = "",
-        old_text: str = "",
-        new_text: str = "",
-    ) -> str:
+    async def execute(self, operation: str, path: str, content: str = "", old_text: str = "", new_text: str = "") -> str:
         full_path = _safe_path(path)
         if full_path is None:
             return "Error: path escapes workspace"
@@ -131,7 +83,7 @@ class WriteFileTool(Tool):
         try:
             full_path.parent.mkdir(parents=True, exist_ok=True)
             full_path.write_text(content, encoding="utf-8")
-            return f"Written: {full_path.relative_to(config.WORKSPACE)}"
+            return f"Written: {full_path.relative_to(_WORKSPACE)}"
         except Exception as e:
             return f"Error: {e}"
 
@@ -145,22 +97,12 @@ class WriteFileTool(Tool):
             if old_text not in content:
                 return "Error: old_text not found in file"
             full_path.write_text(content.replace(old_text, new_text, 1), encoding="utf-8")
-            return f"Edited: {full_path.relative_to(config.WORKSPACE)}"
+            return f"Edited: {full_path.relative_to(_WORKSPACE)}"
         except Exception as e:
             return f"Error: {e}"
 
 
 class ListDirTool(Tool):
-    """List directory contents as a tree.
-
-    Input schema parameters
-    -----------------------
-    path : str
-        Directory path (relative to workspace root). Defaults to workspace root.
-    depth : int, optional
-        Maximum recursion depth. 1 = immediate children only (default).
-    """
-
     def __init__(self):
         super().__init__(
             name="list_dir",
@@ -184,7 +126,7 @@ class ListDirTool(Tool):
         if depth < 1:
             return "Error: depth must be >= 1"
 
-        root_label = f"[workspace root: {config.WORKSPACE}]" if path in ("", ".") else path.rstrip("/\\")
+        root_label = f"[workspace root: {_WORKSPACE}]" if path in ("", ".") else path.rstrip("/\\")
         lines = [root_label]
         stack = [(full_path, 0)]
 

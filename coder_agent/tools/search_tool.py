@@ -1,40 +1,16 @@
-"""Code search tool (grep/ripgrep).
-
-Searches for a regex pattern across files in the workspace and returns
-the matching lines with file paths and line numbers, similar to `grep -rn`.
-
-Tool
-----
-SearchCodeTool — Search for a pattern in workspace files.
-"""
+"""Code search tool (grep/ripgrep)."""
 
 import asyncio
 import re
 import shutil
 
-import config
-from .base import Tool
+from coder_agent.config import cfg
+from coder_agent.tools.base import Tool
+
+_WORKSPACE = cfg.agent.workspace
 
 
 class SearchCodeTool(Tool):
-    """Search for a regex pattern across workspace files.
-
-    Input schema parameters
-    -----------------------
-    pattern : str
-        Regex pattern to search for.
-    path : str, optional
-        Sub-path within the workspace to restrict the search. Default: "." (all files).
-    file_glob : str, optional
-        Glob pattern to filter files, e.g. "*.py". Default: "*" (all files).
-    case_sensitive : bool, optional
-        Whether the match is case-sensitive. Default: True.
-    max_results : int, optional
-        Maximum number of matching lines to return. Default: 50.
-
-    Returns matching lines formatted as "path:lineno: line_content".
-    """
-
     def __init__(self):
         super().__init__(
             name="search_code",
@@ -52,24 +28,17 @@ class SearchCodeTool(Tool):
             },
         )
 
-    async def execute(
-        self,
-        pattern: str,
-        path: str = ".",
-        file_glob: str = "*",
-        case_sensitive: bool = True,
-        max_results: int = 50,
-    ) -> str:
+    async def execute(self, pattern: str, path: str = ".", file_glob: str = "*", case_sensitive: bool = True, max_results: int = 50) -> str:
         if max_results < 1:
             return "Error: max_results must be >= 1"
 
-        root = (config.WORKSPACE / path).resolve()
-        if not root.is_relative_to(config.WORKSPACE):
+        root = (_WORKSPACE / path).resolve()
+        if not root.is_relative_to(_WORKSPACE):
             return "Error: path escapes workspace"
         if not root.exists():
             return f"Error: path not found: {path}"
 
-        rel_path = str(root.relative_to(config.WORKSPACE))
+        rel_path = str(root.relative_to(_WORKSPACE))
 
         rg_path = shutil.which("rg")
         if rg_path:
@@ -82,7 +51,7 @@ class SearchCodeTool(Tool):
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *args,
-                    cwd=str(config.WORKSPACE),
+                    cwd=str(_WORKSPACE),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -114,7 +83,7 @@ class SearchCodeTool(Tool):
                 with file_path.open("r", encoding="utf-8", errors="replace") as f:
                     for lineno, line in enumerate(f, start=1):
                         if regex.search(line):
-                            rel_file = file_path.relative_to(config.WORKSPACE)
+                            rel_file = file_path.relative_to(_WORKSPACE)
                             results.append(f"{rel_file}:{lineno}: {line.rstrip()}")
                             if len(results) >= max_results:
                                 return "\n".join(results)

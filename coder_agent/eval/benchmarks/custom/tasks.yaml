@@ -1,0 +1,189 @@
+# Custom Multi-step Task Suite for Coder-Agent Evaluation
+# Covers easy / medium / hard difficulty, requiring diverse tool usage.
+#
+# Verification format:
+#   - cmd: shell command to run in workspace
+#     expect_exit: expected return code (0 = success)
+#
+# setup_files: files to copy from setup_files/ into workspace before the task
+
+# =============================================================================
+# EASY (3 tasks) - single file, focused operations
+# =============================================================================
+
+- name: debug_and_fix_sort
+  task_id: custom_easy_001
+  difficulty: easy
+  description: >
+    The file buggy_sort.py contains a bubble sort implementation with 3 bugs.
+    Find and fix all bugs so that the tests in test_sort.py pass.
+  setup_files:
+    - buggy_sort.py
+    - test_sort.py
+  verification:
+    - cmd: "python -m pytest test_sort.py -v"
+      expect_exit: 0
+  max_steps: 10
+
+- name: write_fibonacci
+  task_id: custom_easy_002
+  difficulty: easy
+  description: >
+    Write a function `fibonacci(n)` in fibonacci.py that returns the n-th
+    Fibonacci number (0-indexed: fibonacci(0)=0, fibonacci(1)=1, fibonacci(7)=13).
+    Also write tests in test_fibonacci.py and ensure they all pass.
+  setup_files: []
+  verification:
+    - cmd: "python -m pytest test_fibonacci.py -v"
+      expect_exit: 0
+  max_steps: 10
+
+- name: add_type_hints
+  task_id: custom_easy_003
+  difficulty: easy
+  description: >
+    Read the file calculator.py and add proper Python type hints to all functions.
+    The functions must still work correctly — run the existing tests to verify.
+  setup_files:
+    - calculator.py
+    - test_calculator.py
+  verification:
+    - cmd: "python -m pytest test_calculator.py -v"
+      expect_exit: 0
+    - cmd: "python -c \"import ast, sys; ast.parse(open('calculator.py').read()); sys.exit(0)\""
+      expect_exit: 0
+  max_steps: 8
+
+# =============================================================================
+# MEDIUM (5 tasks) - multi-file, multiple tool calls required
+# =============================================================================
+
+- name: implement_stack
+  task_id: custom_medium_001
+  difficulty: medium
+  description: >
+    Implement a Stack data structure in stack.py with methods:
+    push(item), pop() -> item, peek() -> item, is_empty() -> bool, size() -> int.
+    pop() and peek() should raise IndexError on empty stack.
+    Write comprehensive tests in test_stack.py covering edge cases and ensure all pass.
+  setup_files: []
+  verification:
+    - cmd: "python -m pytest test_stack.py -v"
+      expect_exit: 0
+  max_steps: 12
+
+- name: refactor_functions
+  task_id: custom_medium_002
+  difficulty: medium
+  description: >
+    The file messy_utils.py has duplicated code and poor structure.
+    Refactor it to: extract common logic into helper functions, remove duplication,
+    and add a docstring to each public function. Run the existing tests to confirm
+    nothing is broken.
+  setup_files:
+    - messy_utils.py
+    - test_messy_utils.py
+  verification:
+    - cmd: "python -m pytest test_messy_utils.py -v"
+      expect_exit: 0
+  max_steps: 12
+
+- name: write_csv_processor
+  task_id: custom_medium_003
+  difficulty: medium
+  description: >
+    Write a CSV processor in csv_processor.py with a function
+    `process_csv(input_path, output_path)` that reads a CSV file, computes the
+    sum and average of the second column (numeric), and writes a summary CSV with
+    columns [metric, value]. Write and pass tests in test_csv_processor.py.
+  setup_files:
+    - sample_data.csv
+  verification:
+    - cmd: "python -m pytest test_csv_processor.py -v"
+      expect_exit: 0
+  max_steps: 12
+
+- name: debug_recursive_function
+  task_id: custom_medium_004
+  difficulty: medium
+  description: >
+    The file buggy_tree.py has a recursive binary search tree with bugs in
+    insert() and search(). Diagnose and fix all bugs. Run test_tree.py to verify.
+  setup_files:
+    - buggy_tree.py
+    - test_tree.py
+  verification:
+    - cmd: "python -m pytest test_tree.py -v"
+      expect_exit: 0
+  max_steps: 15
+
+- name: implement_lru_cache
+  task_id: custom_medium_005
+  difficulty: medium
+  description: >
+    Implement an LRU (Least Recently Used) cache in lru_cache.py without using
+    functools.lru_cache or OrderedDict. Use a doubly linked list + dict.
+    Class interface: LRUCache(capacity), get(key) -> value or -1, put(key, value).
+    Write tests in test_lru_cache.py and ensure all pass.
+  setup_files: []
+  verification:
+    - cmd: "python -m pytest test_lru_cache.py -v"
+      expect_exit: 0
+  max_steps: 15
+
+# =============================================================================
+# HARD (3 tasks) - complex multi-file, architectural decisions required
+# =============================================================================
+
+- name: build_simple_calculator_cli
+  task_id: custom_hard_001
+  difficulty: hard
+  description: >
+    Build a command-line calculator in calc_cli.py that accepts arithmetic
+    expressions as arguments (e.g. `python calc_cli.py "2 + 3 * 4"`).
+    Support: +, -, *, /, parentheses, and operator precedence.
+    Handle division by zero with a clear error message.
+    Write tests in test_calc_cli.py covering all operators, precedence, and error cases.
+  setup_files: []
+  verification:
+    - cmd: "python -m pytest test_calc_cli.py -v"
+      expect_exit: 0
+    - cmd: "python calc_cli.py \"2 + 3 * 4\""
+      expect_exit: 0
+  max_steps: 20
+
+- name: refactor_into_package
+  task_id: custom_hard_002
+  difficulty: hard
+  description: >
+    The files math_ops.py and string_ops.py contain utility functions.
+    Refactor them into a proper Python package structure:
+      utils/__init__.py  (exports all public functions)
+      utils/math_ops.py
+      utils/string_ops.py
+    Update imports and ensure all tests in test_utils.py pass by importing from `utils`.
+  setup_files:
+    - math_ops.py
+    - string_ops.py
+    - test_utils.py
+  verification:
+    - cmd: "python -m pytest test_utils.py -v"
+      expect_exit: 0
+    - cmd: "python -c \"from utils import add, multiply, reverse_string; print('imports ok')\""
+      expect_exit: 0
+  max_steps: 20
+
+- name: add_caching_decorator
+  task_id: custom_hard_003
+  difficulty: hard
+  description: >
+    Write a `@memoize` decorator in memoize.py that caches function results by
+    arguments. It must: (1) work on functions with any args/kwargs, (2) support
+    a `maxsize` parameter (evict oldest when full), (3) expose a `.cache_info()`
+    method returning (hits, misses, maxsize, currsize).
+    Write thorough tests in test_memoize.py and ensure all pass.
+  setup_files: []
+  verification:
+    - cmd: "python -m pytest test_memoize.py -v"
+      expect_exit: 0
+  max_steps: 20

@@ -1,0 +1,33 @@
+model:
+  provider: minimax        # minimax / openai / anthropic / local
+  name: MiniMax-M2.5
+  temperature: 0.2
+  max_tokens: 8192
+  seed: 42
+
+agent:
+  max_steps: 15
+  max_retries: 3
+  planning_mode: react
+  enable_memory: false
+
+tools:
+  terminal_timeout: 30
+  blocked_commands:
+    - "rm -rf /"
+    - "sudo"
+    - ":(){:|:&};:"
+    - "/dev/sda"
+    - "mkfs"
+    - "dd if="
+    - "chmod -R 777 /"
+
+context:
+  max_tokens: 8000
+  summary_threshold: 6000
+  compression_strategy: rule_based  # rule_based / disabled
+
+eval:
+  output_dir: results/
+  trajectory_dir: trajectories/
+  random_seed: 42

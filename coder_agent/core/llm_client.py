@@ -1,41 +1,18 @@
-"""LLM backend client using OpenAI-compatible API.
-
-Wraps the openai SDK pointed at a custom base_url so any OpenAI-compatible
-provider (MiniMax, DeepSeek, Ollama, etc.) can be swapped in via .env.
-
-Environment variables
----------------------
-LLM_API_KEY     API key for the provider
-LLM_BASE_URL    Base URL of the OpenAI-compatible endpoint
-
-Usage
------
-    client = LLMClient()
-    response = await client.chat(
-        messages=[...],
-        system="You are ...",
-        tools=[...],
-        model="MiniMax-M2.5",
-        max_tokens=8192,
-        temperature=1.0,
-    )
-    # response = {"content": [...], "tool_uses": [...]}
-"""
+"""LLM backend client using OpenAI-compatible API."""
 
 import json
-import os
 from collections import defaultdict
 from typing import Any
 
 from openai import AsyncOpenAI
 
+from coder_agent.config import cfg
+
 
 class LLMClient:
     """Async OpenAI-compatible client.
 
-    Translates between the agent's internal format and the OpenAI API,
-    then normalises the response back into a provider-agnostic dict:
-
+    Normalises responses to:
         {
             "content": [{"type": "text", "text": "..."}],
             "tool_uses": [{"id": "...", "name": "...", "input": {...}}],
@@ -44,8 +21,8 @@ class LLMClient:
 
     def __init__(self):
         self._client = AsyncOpenAI(
-            api_key=os.environ.get("LLM_API_KEY", ""),
-            base_url=os.environ.get("LLM_BASE_URL", ""),
+            api_key=cfg.model.api_key,
+            base_url=cfg.model.base_url,
         )
 
     async def chat(
@@ -58,24 +35,6 @@ class LLMClient:
         temperature: float,
         on_token: Any | None = None,
     ) -> dict[str, Any]:
-        """Call the LLM with streaming and return a normalised response dict.
-
-        Parameters
-        ----------
-        messages   : conversation history from MessageHistory.format_for_api()
-        system     : system prompt string
-        tools      : list of tool dicts from Tool.to_dict()
-        model      : model ID string
-        max_tokens : max tokens for the response
-        temperature: sampling temperature
-        on_token   : optional async callable(token: str) called for each text chunk
-
-        Returns
-        -------
-        dict with keys:
-            "content"   : list of text blocks (may be empty)
-            "tool_uses" : list of tool call dicts (may be empty)
-        """
         full_messages = [{"role": "system", "content": system}] + messages
 
         openai_tools = [
@@ -91,7 +50,6 @@ class LLMClient:
         ] if tools else None
 
         text_chunks: list[str] = []
-        # tool_call_id -> {"id", "name", "arguments"}
         tc_accum: dict[int, dict[str, str]] = defaultdict(lambda: {"id": "", "name": "", "arguments": ""})
 
         stream = await self._client.chat.completions.create(
@@ -107,14 +65,10 @@ class LLMClient:
             delta = chunk.choices[0].delta if chunk.choices else None
             if delta is None:
                 continue
-
-            # Stream text tokens
             if delta.content:
                 text_chunks.append(delta.content)
                 if on_token:
                     await on_token(delta.content)
-
-            # Accumulate tool call fragments
             if delta.tool_calls:
                 for tc in delta.tool_calls:
                     idx = tc.index
@@ -125,13 +79,11 @@ class LLMClient:
                     if tc.function.arguments:
                         tc_accum[idx]["arguments"] += tc.function.arguments
 
-        # Normalise tool calls
         tool_uses = [
             {"id": v["id"], "name": v["name"], "input": json.loads(v["arguments"] or "{}")}
             for v in tc_accum.values()
         ]
 
-        # Normalise content
         full_text = "".join(text_chunks)
         content = [{"type": "text", "text": full_text}] if full_text else []
 

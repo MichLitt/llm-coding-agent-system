@@ -5,4 +5,5 @@ __pycache__/
 workspace/
 .claude
 .pytest_cache/
-memory/*.db
+memory/*.dbresults/
+trajectories/
