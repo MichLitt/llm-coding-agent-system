@@ -1,7 +1,7 @@
 [project]
-name = "coder-agent"
+name = "llm-coding-agent-system"
 version = "0.2.0"
-description = "ReAct-based coding agent with HumanEval evaluation framework"
+description = "LLM coding agent system with ReAct execution, evaluation, and analysis tooling"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

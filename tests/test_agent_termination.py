@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import builtins
 
 import pytest
 
@@ -11,6 +12,8 @@ from coder_agent.core.agent import (
     TERMINATION_MODEL_STOP,
     TERMINATION_RETRY_EXHAUSTED,
     TERMINATION_TOOL_NONZERO_EXIT,
+    TERMINATION_VERIFICATION_FAILED,
+    VerificationResult,
 )
 from coder_agent.tools.base import Tool
 
@@ -66,6 +69,21 @@ def _agent(client: FakeClient, experiment_config: dict | None = None) -> Agent:
         client=client,
         experiment_config=experiment_config or {},
     )
+
+
+def test_safe_print_swallows_oserror(monkeypatch):
+    calls = {"count": 0}
+
+    def flaky_print(*args, **kwargs):
+        calls["count"] += 1
+        raise OSError(22, "Invalid argument")
+
+    monkeypatch.setattr(builtins, "print", flaky_print)
+    agent = _agent(FakeClient([]))
+
+    agent._safe_print("stream chunk", end="")
+
+    assert calls["count"] == 2
 
 
 @pytest.mark.asyncio
@@ -133,6 +151,8 @@ async def test_loop_exception_sets_termination_reason():
 
     assert result.success is False
     assert result.termination_reason == TERMINATION_LOOP_EXCEPTION
+    assert "Exception class: RuntimeError" in result.content
+    assert "Exception stage: llm.chat" in result.content
 
 
 @pytest.mark.asyncio
@@ -153,3 +173,85 @@ async def test_max_steps_sets_termination_reason(monkeypatch):
     assert result.success is False
     assert result.final_status == "timeout"
     assert result.termination_reason == TERMINATION_MAX_STEPS
+
+
+@pytest.mark.asyncio
+async def test_verification_hook_passes_and_allows_model_stop(monkeypatch):
+    async def fake_execute_tools(tool_calls, tool_dict):
+        return [{
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": "Exit code: 0\nSTDOUT:\n\nSTDERR:\n",
+        }]
+
+    monkeypatch.setattr(agent_module, "execute_tools", fake_execute_tools)
+    agent = _agent(FakeClient([_tool_call_response(), _final_response("done")]), {"correction": True})
+
+    result = await agent._loop(
+        "task",
+        verification_hook=lambda: VerificationResult(True, "ok"),
+    )
+
+    assert result.success is True
+    assert result.termination_reason == TERMINATION_MODEL_STOP
+
+
+@pytest.mark.asyncio
+async def test_verification_hook_failure_retries_then_succeeds(monkeypatch):
+    async def fake_execute_tools(tool_calls, tool_dict):
+        return [{
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": "Exit code: 0\nSTDOUT:\n\nSTDERR:\n",
+        }]
+
+    monkeypatch.setattr(agent_module, "execute_tools", fake_execute_tools)
+    client = FakeClient([
+        _tool_call_response(),
+        _final_response("first answer"),
+        _tool_call_response(),
+        _final_response("second answer"),
+    ])
+    agent = _agent(client, {"correction": True})
+    attempts = {"count": 0}
+
+    def verification_hook():
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return VerificationResult(False, "benchmark failed")
+        return VerificationResult(True, "passed")
+
+    result = await agent._loop("task", verification_hook=verification_hook)
+
+    assert result.success is True
+    assert result.termination_reason == TERMINATION_MODEL_STOP
+    assert attempts["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_verification_hook_failure_exhausts_attempts(monkeypatch):
+    async def fake_execute_tools(tool_calls, tool_dict):
+        return [{
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": "Exit code: 0\nSTDOUT:\n\nSTDERR:\n",
+        }]
+
+    monkeypatch.setattr(agent_module, "execute_tools", fake_execute_tools)
+    client = FakeClient([
+        _tool_call_response(),
+        _final_response("first answer"),
+        _tool_call_response(),
+        _final_response("second answer"),
+    ])
+    agent = _agent(client, {"correction": True})
+
+    result = await agent._loop(
+        "task",
+        verification_hook=lambda: VerificationResult(False, "still failing"),
+        max_verification_attempts=2,
+    )
+
+    assert result.success is False
+    assert result.termination_reason == TERMINATION_VERIFICATION_FAILED
+    assert "still failing" in result.content

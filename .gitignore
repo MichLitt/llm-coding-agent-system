@@ -1,9 +1,11 @@
 .env
 .venv/
+.pytest_cache/
+.claude/
+workspace/
+memory/
+results/
+trajectories/
 __pycache__/
 *.pyc
-workspace/
-.claude
-.pytest_cache/
-memory/*.dbresults/
-trajectories/
+*.db

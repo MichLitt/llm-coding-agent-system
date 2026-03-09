@@ -1,4 +1,4 @@
-"""Click CLI for Coder-Agent.
+"""Click CLI for LLM Coding Agent System.
 
 Commands
 --------
@@ -30,6 +30,8 @@ CONFIG_PRESETS: dict[str, dict] = {
     "C2": {"correction": False, "memory": False, "planning_mode": "react"},
     "C3": {"correction": True, "memory": False, "planning_mode": "react"},
     "C4": {"correction": True, "memory": True, "planning_mode": "react"},
+    "C5": {"correction": True, "memory": True, "planning_mode": "react", "checklist": True},
+    "C6": {"correction": True, "memory": False, "planning_mode": "react", "verification_gate": True},
 }
 
 
@@ -64,9 +66,9 @@ def _make_agent(
 # ---------------------------------------------------------------------------
 
 @click.group()
-@click.version_option("0.2.0", prog_name="coder-agent")
+@click.version_option("0.2.0", prog_name="LLM Coding Agent System")
 def cli():
-    """Coder-Agent: ReAct-based AI coding assistant."""
+    """LLM Coding Agent System: ReAct-based AI coding assistant."""
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +88,7 @@ def chat(model: str | None, no_memory: bool):
         memory = MemoryManager(cfg.agent.memory_db_path)
 
     agent = Agent(tools=build_tools(), client=LLMClient(), memory=memory)
-    click.echo("Coder-Agent ready. Type 'exit' to quit.\n")
+    click.echo("LLM Coding Agent System ready. Type 'exit' to quit.\n")
 
     while True:
         try:
@@ -137,7 +139,7 @@ def run(task: str, model: str | None, no_memory: bool, trajectory_dir: str | Non
 @click.option("--output", default=None, type=click.Path(), help="Output directory for results")
 @click.option("--limit", default=0, type=int, help="Limit number of tasks (0 = all)")
 @click.option("--compare", default=None, help="Comma-separated config labels to compare: C1,C2,C3,C4")
-@click.option("--preset", type=click.Choice(["default", "C1", "C2", "C3", "C4"]), default="default",
+@click.option("--preset", type=click.Choice(["default", "C1", "C2", "C3", "C4", "C5", "C6"]), default="default",
               help="Single-run config preset to use")
 @click.option("--resume", is_flag=True, help="Resume from checkpoint files for this config label")
 @click.option("--config-label", default="eval", help="Label for this run (used in output filenames)")
@@ -177,6 +179,7 @@ def eval(
                 description=he.build_agent_prompt(t),
                 difficulty="medium",
                 verification=[],  # HumanEval uses custom evaluation logic
+                verification_contract={"mode": "humaneval_official", "max_attempts": 2},
                 metadata={
                     "benchmark": "humaneval",
                     "prompt": t.prompt,
@@ -278,7 +281,8 @@ def memory(project: str):
 @cli.command()
 @click.argument("experiment_id")
 @click.option("--compare", default=None, help="Comma-separated experiment IDs to compare")
-def analyze(experiment_id: str, compare: str | None):
+@click.option("--llm-taxonomy", is_flag=True, help="Use LLM-as-Critic for two-dimensional failure classification")
+def analyze(experiment_id: str, compare: str | None, llm_taxonomy: bool):
     """Analyze trajectory results for an experiment."""
     import json
 
@@ -299,6 +303,11 @@ def analyze(experiment_id: str, compare: str | None):
         stats = analyzer.compute_statistics(experiment_id)
         taxonomy = analyzer.failure_taxonomy(experiment_id)
         analyzer.print_report(stats, taxonomy)
+
+        if llm_taxonomy:
+            click.echo("\nRunning LLM-as-Critic classification (this may take a moment)...")
+            llm_results = analyzer.failure_taxonomy_llm(experiment_id)
+            analyzer.print_llm_taxonomy(llm_results)
 
 
 # ---------------------------------------------------------------------------

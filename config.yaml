@@ -10,6 +10,7 @@ agent:
   max_retries: 3
   planning_mode: react
   enable_memory: false
+  enable_checklist: false  # C5: Adaptive Checklist (Decomposer role)
 
 tools:
   terminal_timeout: 30

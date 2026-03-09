@@ -5,11 +5,13 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
 from coder_agent.config import cfg
+from coder_agent.core.agent import VerificationResult
 from coder_agent.eval.metrics import (
     EvalResult,
     MetricsSummary,
@@ -27,6 +29,7 @@ class TaskSpec:
     difficulty: str = "medium"
     setup_files: list[str] = field(default_factory=list)
     verification: list[dict[str, Any]] = field(default_factory=list)
+    verification_contract: dict[str, Any] = field(default_factory=dict)
     max_steps: int = 15
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -157,6 +160,8 @@ class EvalRunner:
         """Run a single task and return an EvalResult."""
         workspace = cfg.agent.workspace
         self._prepare_workspace(task, workspace)
+        verification_hook = self._build_verification_hook(task, workspace)
+        gate_enabled = bool(getattr(agent, "experiment_config", {}).get("verification_gate", False))
 
         start = time.time()
         try:
@@ -164,8 +169,11 @@ class EvalRunner:
                 task.description,
                 task_id=task.task_id,
                 finalize_trajectory=False,
+                verification_hook=verification_hook if gate_enabled else None,
+                max_verification_attempts=task.verification_contract.get("max_attempts", 2),
             )
         except Exception as exc:
+            tb_summary = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).strip()
             return EvalResult(
                 task_id=task.task_id,
                 success=False,
@@ -179,7 +187,11 @@ class EvalRunner:
                 termination_reason="loop_exception",
                 verification_pass_rate=0.0,
                 duration=time.time() - start,
-                error_types=[type(exc).__name__],
+                error_types=[
+                    f"Exception class: {type(exc).__name__}",
+                    f"Message: {exc}",
+                    f"Traceback:\n{tb_summary[:1200]}",
+                ],
                 config_label=config_label,
             )
 
@@ -193,6 +205,11 @@ class EvalRunner:
                 error_types.append(error_message)
         else:
             checks_passed = self._run_custom_checks(task.verification, workspace)
+        if getattr(turn_result, "error_details", None):
+            error_types.extend(
+                detail for detail in turn_result.error_details
+                if detail and detail not in error_types
+            )
 
         verification_pass_rate = checks_passed / checks_total if checks_total else 0.0
         benchmark_passed = checks_passed == checks_total
@@ -419,9 +436,56 @@ class EvalRunner:
     ) -> int:
         checks_passed = 0
         for check in checks:
-            if self._run_check(check, workspace):
+            ok, _, _ = self._run_check(check, workspace)
+            if ok:
                 checks_passed += 1
         return checks_passed
+
+    def _build_verification_hook(
+        self,
+        task: TaskSpec,
+        workspace: Path,
+    ) -> Callable[[], VerificationResult] | None:
+        contract = dict(task.verification_contract)
+        if not contract:
+            if task.metadata.get("benchmark") == "humaneval":
+                contract = {"mode": "humaneval_official", "max_attempts": 2}
+            elif task.verification:
+                contract = {"mode": "custom_commands", "max_attempts": 2}
+            else:
+                return None
+
+        mode = contract.get("mode")
+        if mode == "humaneval_official":
+            return lambda: self._verify_humaneval(task, workspace)
+        if mode == "custom_commands":
+            return lambda: self._verify_custom(task.verification, workspace)
+        return None
+
+    def _verify_custom(
+        self,
+        checks: list[dict[str, Any]],
+        workspace: Path,
+    ) -> VerificationResult:
+        failures: list[str] = []
+        passed = 0
+        for check in checks:
+            ok, stdout, stderr = self._run_check(check, workspace)
+            if ok:
+                passed += 1
+                continue
+            cmd = check.get("cmd", "")
+            signal = (stderr or stdout or "verification command failed").strip().splitlines()[0]
+            failures.append(f"{cmd}: {signal}")
+
+        if passed == len(checks):
+            return VerificationResult(True, "External verification passed.")
+
+        failure_summary = "; ".join(failures[:3])
+        return VerificationResult(
+            False,
+            f"External verification failed ({passed}/{len(checks)} checks passed). {failure_summary}",
+        )
 
     def _run_humaneval_check(
         self,
@@ -456,6 +520,18 @@ class EvalRunner:
             return 1, None
         return 0, result.error or "HumanEval verification failed"
 
+    def _verify_humaneval(
+        self,
+        task: TaskSpec,
+        workspace: Path,
+    ) -> VerificationResult:
+        checks_passed, error_message = self._run_humaneval_check(task, workspace)
+        if checks_passed == 1:
+            return VerificationResult(True, "Official HumanEval verification passed.")
+        summary = (error_message or "HumanEval verification failed").strip()
+        summary = summary.splitlines()[0] if summary else "HumanEval verification failed"
+        return VerificationResult(False, f"Official HumanEval verification failed. {summary}")
+
     def _finalize_trajectory(
         self,
         agent: Any,
@@ -474,17 +550,18 @@ class EvalRunner:
         store.finish_trajectory(
             trajectory_id,
             final_status=final_status,
+            termination_reason=getattr(turn_result, "termination_reason", None),
             partial_score=partial_score,
             total_tokens=getattr(turn_result, "total_tokens", 0),
             duration=duration,
         )
 
-    def _run_check(self, check: dict[str, Any], workspace: Path) -> bool:
+    def _run_check(self, check: dict[str, Any], workspace: Path) -> tuple[bool, str, str]:
         """Run a single verification command."""
         cmd = check.get("cmd", "")
         expect_exit = check.get("expect_exit", 0)
         if not cmd:
-            return True
+            return True, "", ""
         normalized_cmd = self._normalize_command(cmd)
         try:
             result = subprocess.run(
@@ -492,13 +569,14 @@ class EvalRunner:
                 shell=True,
                 cwd=str(workspace),
                 capture_output=True,
+                text=True,
                 timeout=30,
             )
-            return result.returncode == expect_exit
+            return result.returncode == expect_exit, result.stdout, result.stderr
         except subprocess.TimeoutExpired:
-            return False
-        except Exception:
-            return False
+            return False, "", "TimeoutExpired"
+        except Exception as exc:
+            return False, "", str(exc)
 
     def _normalize_command(self, cmd: str) -> str:
         """Run verification commands with the current interpreter when possible."""

@@ -57,6 +57,7 @@ class AgentConfig:
     planning_mode: str = _Y.get("agent", {}).get("planning_mode", "react")
     enable_correction: bool = os.environ.get("CODER_CORRECTION_ENABLED", str(_Y.get("agent", {}).get("enable_correction", True))).lower() == "true"
     enable_memory: bool = os.environ.get("CODER_MEMORY_ENABLED", str(_Y.get("agent", {}).get("enable_memory", False))).lower() == "true"
+    enable_checklist: bool = os.environ.get("CODER_CHECKLIST_ENABLED", str(_Y.get("agent", {}).get("enable_checklist", False))).lower() == "true"
     verbose: bool = os.environ.get("CODER_VERBOSE", "false").lower() == "true"
     workspace: Path = field(default_factory=lambda: Path(os.environ.get("CODER_WORKSPACE", str(_ROOT / "workspace"))).resolve())
     memory_db_path: Path = field(default_factory=lambda: _ROOT / "memory" / "agent_memory.db")

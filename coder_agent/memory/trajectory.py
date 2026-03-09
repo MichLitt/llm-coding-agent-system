@@ -49,6 +49,7 @@ class Trajectory:
     config: dict[str, Any]
     steps: list[Step] = field(default_factory=list)
     final_status: str = "running"        # running / success / failed / timeout
+    termination_reason: str | None = None
     partial_score: float = 0.0
     total_tokens: int = 0
     duration: float = 0.0
@@ -95,6 +96,7 @@ class TrajectoryStore:
         self,
         traj_id: str,
         final_status: str,
+        termination_reason: str | None = None,
         partial_score: float = 0.0,
         total_tokens: int = 0,
         duration: float | None = None,
@@ -104,6 +106,7 @@ class TrajectoryStore:
         if traj is None:
             return
         traj.final_status = final_status
+        traj.termination_reason = termination_reason
         traj.partial_score = partial_score
         traj.total_tokens = total_tokens
         traj.duration = duration if duration is not None else time.time() - traj.started_at

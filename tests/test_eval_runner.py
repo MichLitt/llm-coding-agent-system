@@ -5,8 +5,29 @@ from coder_agent.eval.runner import EvalRunner, TaskSpec
 
 
 class DummyAgent:
+    def __init__(self, experiment_config=None):
+        self.experiment_config = experiment_config or {}
+        self.run_calls = []
+
     def reset(self) -> None:
         return None
+
+    def run(self, description, task_id="", finalize_trajectory=True, verification_hook=None, max_verification_attempts=2):
+        self.run_calls.append({
+            "description": description,
+            "task_id": task_id,
+            "verification_hook": verification_hook,
+            "max_verification_attempts": max_verification_attempts,
+        })
+        return type("TurnResult", (), {
+            "final_status": "success",
+            "steps": 1,
+            "retry_steps": 0,
+            "termination_reason": "model_stop",
+            "total_tokens": 10,
+            "trajectory_id": None,
+            "error_details": [],
+        })()
 
 
 def _result(task_id: str, config_label: str = "eval") -> EvalResult:
@@ -113,3 +134,23 @@ def test_run_suite_without_resume_clears_old_checkpoint(tmp_path):
     checkpoint_content = (tmp_path / "fresh.jsonl").read_text(encoding="utf-8")
     assert "stale" not in checkpoint_content
     assert "fresh_task" in checkpoint_content
+
+
+def test_run_task_passes_verification_hook_only_when_gate_enabled(tmp_path):
+    task = TaskSpec(
+        task_id="custom_task",
+        description="fix task",
+        verification=[{"cmd": "python -c \"print('ok')\""}],
+    )
+
+    gate_agent = DummyAgent({"verification_gate": True})
+    runner = EvalRunner(agent_factory=lambda _: gate_agent, output_dir=tmp_path)
+    result = runner.run_task(task, gate_agent, config_label="c6")
+
+    assert result.success is True
+    assert gate_agent.run_calls[0]["verification_hook"] is not None
+    assert gate_agent.run_calls[0]["max_verification_attempts"] == 2
+
+    no_gate_agent = DummyAgent({"verification_gate": False})
+    runner.run_task(task, no_gate_agent, config_label="c3")
+    assert no_gate_agent.run_calls[0]["verification_hook"] is None

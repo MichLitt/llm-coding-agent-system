@@ -24,6 +24,7 @@ def load_custom_tasks(tasks_file: Path = _DEFAULT_TASKS_FILE) -> list[TaskSpec]:
             difficulty=d.get("difficulty", "medium"),
             setup_files=d.get("setup_files", []),
             verification=d.get("verification", []),
+            verification_contract=d.get("verification_contract", {"mode": "custom_commands", "max_attempts": 2}),
             max_steps=d.get("max_steps", 15),
             metadata={
                 "name": d.get("name", ""),

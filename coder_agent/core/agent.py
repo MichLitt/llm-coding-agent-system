@@ -2,12 +2,14 @@
 
 import asyncio
 import dataclasses
+import inspect
 import json
 import re
 import sys
 import time
+import traceback
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from coder_agent.config import cfg
 from coder_agent.core.context import MessageHistory
@@ -22,6 +24,7 @@ TERMINATION_TOOL_EXCEPTION = "tool_exception"
 TERMINATION_RETRY_EXHAUSTED = "retry_exhausted"
 TERMINATION_LOOP_EXCEPTION = "loop_exception"
 TERMINATION_MAX_STEPS = "max_steps"
+TERMINATION_VERIFICATION_FAILED = "verification_failed"
 
 
 def classify_error(stderr: str) -> str | None:
@@ -84,6 +87,16 @@ class TurnResult:
     trajectory_id: str | None = None
     final_status: str = "failed"
     termination_reason: str | None = None
+    error_details: list[str] = dataclasses.field(default_factory=list)
+
+
+@dataclass
+class VerificationResult:
+    passed: bool
+    summary: str = ""
+
+
+VerificationHook = Callable[[], VerificationResult | Awaitable[VerificationResult]]
 
 
 def _build_system_prompt(
@@ -195,6 +208,14 @@ class Agent:
             client=client,
         )
 
+        # C5: Adaptive Checklist (Decomposer role)
+        enable_checklist = self.experiment_config.get("checklist", cfg.agent.enable_checklist)
+        if enable_checklist:
+            from coder_agent.core.decomposer import Decomposer
+            self.decomposer: Any = Decomposer()
+        else:
+            self.decomposer = None
+
     def _params(self) -> dict[str, Any]:
         return {
             field.name: getattr(self._model_cfg, field.name)
@@ -217,6 +238,10 @@ class Agent:
             context_window_tokens=self._model_cfg.context_window_tokens,
             client=self.client,
         )
+        # Reset decomposer state for new task
+        if self.decomposer is not None:
+            from coder_agent.core.decomposer import Decomposer
+            self.decomposer = Decomposer()
 
     def _make_result(
         self,
@@ -230,6 +255,7 @@ class Agent:
         trajectory_id: str | None,
         final_status: str,
         termination_reason: str | None,
+        error_details: list[str] | None = None,
     ) -> TurnResult:
         return TurnResult(
             content=content,
@@ -241,23 +267,30 @@ class Agent:
             trajectory_id=trajectory_id,
             final_status=final_status,
             termination_reason=termination_reason,
+            error_details=error_details or [],
         )
 
     def _safe_print(self, text: str = "", end: str = "\n") -> None:
         """Print text without crashing on console encoding issues."""
         try:
             print(text, end=end, flush=True)
-        except UnicodeEncodeError:
+        except (UnicodeEncodeError, OSError):
             stdout = sys.stdout
             encoding = getattr(stdout, "encoding", None) or "utf-8"
             safe_text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
-            print(safe_text, end=end, flush=True)
+            try:
+                print(safe_text, end=end, flush=True)
+            except OSError:
+                # Streaming output should never take down the agent loop.
+                return
 
     async def _loop(
         self,
         user_input: str,
         task_id: str = "",
         finalize_trajectory: bool = True,
+        verification_hook: VerificationHook | None = None,
+        max_verification_attempts: int = 2,
     ) -> TurnResult:
         start_time = time.time()
         steps = 0
@@ -267,10 +300,26 @@ class Agent:
         last_error_type: str | None = None
         project_id: str | None = None
         traj_id: str | None = None
+        verification_attempts = 0
+        exception_stage = "init"
 
+        exception_stage = "history.add_user"
         await self.history.add_message("user", user_input)
 
+        # C5: Decomposer generates the Adaptive Checklist before the first step
+        if self.decomposer is not None:
+            exception_stage = "decomposer.decompose"
+            self._safe_print("\n[Decomposer] Generating task checklist...")
+            goals = await self.decomposer.decompose(user_input, self.client)
+            if goals:
+                checklist_intro = "I've broken down this task into sub-goals:\n" + "\n".join(
+                    f"  [{i}] {g}" for i, g in enumerate(goals, 1)
+                )
+                self._safe_print(checklist_intro)
+                await self.history.add_message("user", checklist_intro)
+
         if self.memory:
+            exception_stage = "memory.lookup"
             project_id = self.memory.get_or_create_project(cfg.agent.workspace)
             recent = self.memory.get_recent_tasks(project_id, n=3)
             if recent:
@@ -321,6 +370,21 @@ class Agent:
                 think_buf = ""
                 self.history.truncate()
 
+                # C5: inject progress prompt before each LLM call
+                if self.decomposer is not None and steps > 1:
+                    # Update completion state based on recent steps
+                    recorded_steps = []
+                    if self.trajectory_store and traj_id:
+                        # Build lightweight step dicts from trajectory
+                        pass  # update uses history observations instead
+                    self.decomposer.update(
+                        [{"observation": msg.get("content", "")} for msg in self.history.messages[-6:]]
+                    )
+                    progress = self.decomposer.to_progress_prompt()
+                    if progress:
+                        await self.history.add_message("user", progress)
+
+                exception_stage = "llm.chat"
                 response = await self.client.chat(
                     messages=self.history.format_for_api(),
                     system=self.system,
@@ -345,6 +409,68 @@ class Agent:
                         flags=re.DOTALL,
                     ).strip()
 
+                    if verification_hook is not None:
+                        verification_attempts += 1
+                        exception_stage = "verification_hook"
+                        verification_result = verification_hook()
+                        if inspect.isawaitable(verification_result):
+                            verification_result = await verification_result
+
+                        if not verification_result.passed:
+                            failure_summary = (
+                                verification_result.summary.strip() or "Verification failed."
+                            )
+                            if traj_id:
+                                self.trajectory_store.record_step(
+                                    traj_id,
+                                    Step(
+                                        step_id=steps,
+                                        thought=clean_text,
+                                        action=None,
+                                        observation=f"[verification failed]\n{failure_summary}"[:500],
+                                        timestamp=step_start,
+                                        error_type="VerificationFailed",
+                                        is_retry=False,
+                                    ),
+                                )
+
+                            if verification_attempts >= max_verification_attempts:
+                                if traj_id and finalize_trajectory:
+                                    self.trajectory_store.finish_trajectory(
+                                        traj_id,
+                                        final_status="failed",
+                                        termination_reason=TERMINATION_VERIFICATION_FAILED,
+                                        total_tokens=self.history.total_tokens,
+                                        duration=time.time() - start_time,
+                                    )
+                                result = self._make_result(
+                                    content=failure_summary,
+                                    steps=steps,
+                                    tool_calls=all_tool_calls,
+                                    success=False,
+                                    retry_steps=retry_steps,
+                                    total_tokens=self.history.total_tokens,
+                                    trajectory_id=traj_id,
+                                    final_status="failed",
+                                    termination_reason=TERMINATION_VERIFICATION_FAILED,
+                                    error_details=[failure_summary],
+                                )
+                                if finalize_trajectory and self.memory and project_id:
+                                    self.memory.record_task(project_id, user_input, result)
+                                return result
+
+                            exception_stage = "history.add_verification_feedback"
+                            await self.history.add_message("assistant", clean_text)
+                            await self.history.add_message(
+                                "user",
+                                (
+                                    "External verification failed. Fix the implementation and only "
+                                    "stop after verification passes.\n\n"
+                                    f"{failure_summary}"
+                                ),
+                            )
+                            continue
+
                     if traj_id:
                         self.trajectory_store.record_step(
                             traj_id,
@@ -360,6 +486,7 @@ class Agent:
                             self.trajectory_store.finish_trajectory(
                                 traj_id,
                                 final_status="success",
+                                termination_reason=TERMINATION_MODEL_STOP,
                                 partial_score=1.0,
                                 total_tokens=self.history.total_tokens,
                                 duration=time.time() - start_time,
@@ -375,6 +502,7 @@ class Agent:
                         trajectory_id=traj_id,
                         final_status="success",
                         termination_reason=TERMINATION_MODEL_STOP,
+                        error_details=[],
                     )
                     if finalize_trajectory and self.memory and project_id:
                         self.memory.record_task(project_id, user_input, result)
@@ -410,6 +538,7 @@ class Agent:
                     tool_calls=openai_tool_calls,
                 )
 
+                exception_stage = "tools.execute"
                 tool_results = await execute_tools(tool_uses, self.tool_dict)
                 for tool_result in tool_results:
                     status = "ERR" if tool_result.get("is_error") else "ok"
@@ -445,6 +574,7 @@ class Agent:
                         self.trajectory_store.finish_trajectory(
                             traj_id,
                             final_status="failed",
+                            termination_reason=TERMINATION_TOOL_EXCEPTION,
                             total_tokens=self.history.total_tokens,
                             duration=time.time() - start_time,
                         )
@@ -458,6 +588,7 @@ class Agent:
                         trajectory_id=traj_id,
                         final_status="failed",
                         termination_reason=TERMINATION_TOOL_EXCEPTION,
+                        error_details=[str(tool_exception.get("content", "Error: tool execution failed"))],
                     )
                     if finalize_trajectory and self.memory and project_id:
                         self.memory.record_task(project_id, user_input, result)
@@ -505,6 +636,7 @@ class Agent:
                         self.trajectory_store.finish_trajectory(
                             traj_id,
                             final_status="failed",
+                            termination_reason=TERMINATION_TOOL_NONZERO_EXIT,
                             total_tokens=self.history.total_tokens,
                             duration=time.time() - start_time,
                         )
@@ -518,6 +650,7 @@ class Agent:
                         trajectory_id=traj_id,
                         final_status="failed",
                         termination_reason=TERMINATION_TOOL_NONZERO_EXIT,
+                        error_details=stderr_parts,
                     )
                     if finalize_trajectory and self.memory and project_id:
                         self.memory.record_task(project_id, user_input, result)
@@ -537,6 +670,7 @@ class Agent:
                         self.trajectory_store.finish_trajectory(
                             traj_id,
                             final_status="failed",
+                            termination_reason=TERMINATION_RETRY_EXHAUSTED,
                             total_tokens=self.history.total_tokens,
                             duration=time.time() - start_time,
                         )
@@ -550,6 +684,7 @@ class Agent:
                         trajectory_id=traj_id,
                         final_status="failed",
                         termination_reason=TERMINATION_RETRY_EXHAUSTED,
+                        error_details=[f"Error: max retries ({cfg.agent.max_retries}) exceeded for {last_error_type}"],
                     )
                     if finalize_trajectory and self.memory and project_id:
                         self.memory.record_task(project_id, user_input, result)
@@ -576,6 +711,7 @@ class Agent:
                     )
 
                 for tool_result in tool_results:
+                    exception_stage = "history.add_tool"
                     await self.history.add_message(
                         "tool",
                         tool_result.get("content", ""),
@@ -583,15 +719,36 @@ class Agent:
                     )
 
         except Exception as exc:
+            tb_summary = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).strip()
+            error_summary = (
+                f"Exception stage: {exception_stage}\n"
+                f"Exception class: {type(exc).__name__}\n"
+                f"Message: {exc}\n"
+                f"Traceback:\n{tb_summary[:1200]}"
+            )
+            if traj_id:
+                self.trajectory_store.record_step(
+                    traj_id,
+                    Step(
+                        step_id=max(steps, 1),
+                        thought="[system] unhandled exception in agent loop",
+                        action=None,
+                        observation=error_summary[:500],
+                        timestamp=time.time(),
+                        error_type=type(exc).__name__,
+                        is_retry=False,
+                    ),
+                )
             if traj_id and finalize_trajectory:
                 self.trajectory_store.finish_trajectory(
                     traj_id,
                     final_status="failed",
+                    termination_reason=TERMINATION_LOOP_EXCEPTION,
                     total_tokens=self.history.total_tokens,
                     duration=time.time() - start_time,
                 )
             result = self._make_result(
-                content=f"Error: {exc}",
+                content=error_summary,
                 steps=steps,
                 tool_calls=all_tool_calls,
                 success=False,
@@ -600,6 +757,7 @@ class Agent:
                 trajectory_id=traj_id,
                 final_status="failed",
                 termination_reason=TERMINATION_LOOP_EXCEPTION,
+                error_details=[error_summary],
             )
             if finalize_trajectory and self.memory and project_id:
                 self.memory.record_task(project_id, user_input, result)
@@ -609,6 +767,7 @@ class Agent:
             self.trajectory_store.finish_trajectory(
                 traj_id,
                 final_status="timeout",
+                termination_reason=TERMINATION_MAX_STEPS,
                 total_tokens=self.history.total_tokens,
                 duration=time.time() - start_time,
             )
@@ -622,6 +781,7 @@ class Agent:
             trajectory_id=traj_id,
             final_status="timeout",
             termination_reason=TERMINATION_MAX_STEPS,
+            error_details=["Error: max steps reached"],
         )
         if finalize_trajectory and self.memory and project_id:
             self.memory.record_task(project_id, user_input, result)
@@ -632,12 +792,16 @@ class Agent:
         user_input: str,
         task_id: str = "",
         finalize_trajectory: bool = True,
+        verification_hook: VerificationHook | None = None,
+        max_verification_attempts: int = 2,
     ) -> TurnResult:
         return asyncio.run(
             self._loop(
                 user_input,
                 task_id=task_id,
                 finalize_trajectory=finalize_trajectory,
+                verification_hook=verification_hook,
+                max_verification_attempts=max_verification_attempts,
             )
         )
 

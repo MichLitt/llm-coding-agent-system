@@ -11,6 +11,15 @@ def test_resolve_agent_config_uses_same_c4_mapping():
     }
 
 
+def test_resolve_agent_config_supports_c6_verification_gate():
+    assert resolve_agent_config("C6") == {
+        "correction": True,
+        "memory": False,
+        "planning_mode": "react",
+        "verification_gate": True,
+    }
+
+
 def test_eval_rejects_compare_and_preset_together():
     runner = CliRunner()
 

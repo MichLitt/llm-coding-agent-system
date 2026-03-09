@@ -2,7 +2,7 @@
 
 Two modes:
 1. Rule-based taxonomy (fast, no LLM) — classifies failures by error_type in steps.
-2. LLM-assisted taxonomy (optional) — uses the agent's LLM to classify ambiguous cases.
+2. LLM-as-Critic taxonomy (--llm-taxonomy) — two-dimensional classification via LLM.
 
 Usage
 -----
@@ -12,8 +12,13 @@ Usage
     stats = analyzer.compute_statistics(experiment_id="C3")
     taxonomy = analyzer.failure_taxonomy(experiment_id="C3")
     analyzer.print_report(stats, taxonomy)
+
+    # LLM-based deep analysis
+    llm_results = analyzer.failure_taxonomy_llm(experiment_id="C3")
+    analyzer.print_llm_taxonomy(llm_results)
 """
 
+import asyncio
 import json
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -97,6 +102,18 @@ class TaxonomyResult:
 
 
 @dataclass
+class LLMTaxonomyResult:
+    """Result of LLM-as-Critic two-dimensional failure classification."""
+    task_id: str
+    goal_alignment: str       # "correct" | "deviated"
+    execution_issue: str      # "logic" | "tool" | "self_eval" | "planning" | "none"
+    explanation: str
+    fixable_by_more_steps: bool
+    final_status: str
+    steps_used: int
+
+
+@dataclass
 class TrajectoryStats:
     experiment_id: str
     total_trajectories: int
@@ -114,6 +131,7 @@ class TrajectoryStats:
     tool_usage: dict[str, int]          # tool name -> total calls
     retry_rate: float                    # fraction of steps that are retries
     correction_success_rate: float       # when retry happened, did the next step succeed?
+    termination_reasons: dict[str, int] = field(default_factory=dict)
 
     by_difficulty: dict[str, dict] = field(default_factory=dict)
 
@@ -129,7 +147,15 @@ class TrajectoryAnalyzer:
         self.store = TrajectoryStore(trajectory_dir or cfg.eval.trajectory_dir)
 
     def _load(self, experiment_id: str) -> list[dict]:
-        return self.store.load(experiment_id)
+        trajs = self.store.load(experiment_id)
+        latest_by_key: dict[str, dict] = {}
+        ordered_keys: list[str] = []
+        for index, traj in enumerate(trajs):
+            task_id = str(traj.get("task_id") or f"__missing__{index}")
+            if task_id not in latest_by_key:
+                ordered_keys.append(task_id)
+            latest_by_key[task_id] = traj
+        return [latest_by_key[key] for key in ordered_keys]
 
     def compute_statistics(self, experiment_id: str) -> TrajectoryStats:
         """Compute aggregate statistics for an experiment."""
@@ -142,6 +168,7 @@ class TrajectoryAnalyzer:
                 avg_steps_all=0, avg_steps_success=0, avg_steps_failed=0,
                 avg_tokens=0, avg_duration=0,
                 tool_usage={}, retry_rate=0, correction_success_rate=0,
+                termination_reasons={},
             )
 
         success = [t for t in trajs if t["final_status"] == "success"]
@@ -166,6 +193,11 @@ class TrajectoryAnalyzer:
                     retry_steps += 1
 
         retry_rate = retry_steps / total_steps if total_steps else 0
+        termination_counts = Counter(
+            t.get("termination_reason")
+            for t in trajs
+            if t.get("termination_reason")
+        )
 
         return TrajectoryStats(
             experiment_id=experiment_id,
@@ -181,6 +213,7 @@ class TrajectoryAnalyzer:
             tool_usage=dict(tool_counter.most_common()),
             retry_rate=retry_rate,
             correction_success_rate=self._correction_success_rate(trajs),
+            termination_reasons=dict(termination_counts),
         )
 
     def _correction_success_rate(self, trajs: list[dict]) -> float:
@@ -227,6 +260,149 @@ class TrajectoryAnalyzer:
             ))
         return results
 
+    # -----------------------------------------------------------------------
+    # LLM-as-Critic taxonomy
+    # -----------------------------------------------------------------------
+
+    _LLM_SYSTEM_PROMPT = """\
+You are an expert evaluator analyzing why a coding agent failed a task.
+After your analysis, output ONLY a JSON object as your final answer (no markdown, no extra text after the JSON).
+
+Dimension 1 — goal_alignment:
+  "correct"  — agent worked toward the right solution but made execution mistakes
+  "deviated" — agent misunderstood the task or went in the wrong direction
+
+Dimension 2 — execution_issue (pick ONE):
+  "logic"     — code logic is wrong (algorithm, condition, edge case)
+  "tool"      — tool call failed (bad args, path, command not found)
+  "self_eval" — agent thought it succeeded but solution is actually wrong
+  "planning"  — agent lost track of goals, looped, or hit step limit
+  "none"      — unclear
+
+End your response with this JSON block:
+{"goal_alignment": "...", "execution_issue": "...", "explanation": "one sentence", "fixable_by_more_steps": true_or_false}"""
+
+    async def _classify_one(self, traj: dict) -> LLMTaxonomyResult:
+        """Call LLM to classify a single failed trajectory."""
+        from coder_agent.core.llm_client import LLMClient
+
+        steps = traj.get("steps", [])
+        step_summaries = []
+        for i, s in enumerate(steps):
+            thought = (s.get("thought") or "")[:200]
+            obs = (s.get("observation") or "")[:300]
+            err = s.get("error_type") or ""
+            action = (s.get("action") or {})
+            tool = action.get("tool", "")
+            step_summaries.append(
+                f"Step {i+1}: tool={tool or 'none'} err={err or 'none'}\n"
+                f"  thought: {thought}\n"
+                f"  observation: {obs}"
+            )
+
+        user_content = (
+            f"Task: {traj.get('task_id', 'unknown')}\n"
+            f"Final status: {traj.get('final_status', 'unknown')}\n"
+            f"Total steps: {len(steps)}\n\n"
+            + "\n".join(step_summaries)
+        )
+
+        client = LLMClient()
+        result = await client.chat(
+            messages=[{"role": "user", "content": user_content}],
+            system=self._LLM_SYSTEM_PROMPT,
+            tools=[],
+            model=cfg.model.name,
+            max_tokens=1024,
+            temperature=0.0,
+        )
+
+        raw = ""
+        for block in result.get("content", []):
+            if block.get("type") == "text":
+                raw = block["text"].strip()
+                break
+
+        # Parse JSON — find the LAST {...} block in the output (after <think> chains)
+        import re
+        parsed = {}
+        # Find all JSON-like blocks, take the last one
+        matches = list(re.finditer(r"\{[^{}]*\}", raw, re.DOTALL))
+        for m in reversed(matches):
+            try:
+                parsed = json.loads(m.group())
+                if "goal_alignment" in parsed or "execution_issue" in parsed:
+                    break
+            except json.JSONDecodeError:
+                continue
+
+        return LLMTaxonomyResult(
+            task_id=traj.get("task_id", "unknown"),
+            goal_alignment=parsed.get("goal_alignment", "unknown"),
+            execution_issue=parsed.get("execution_issue", "unknown"),
+            explanation=parsed.get("explanation", raw[:200]),
+            fixable_by_more_steps=bool(parsed.get("fixable_by_more_steps", False)),
+            final_status=traj.get("final_status", "unknown"),
+            steps_used=len(steps),
+        )
+
+    def failure_taxonomy_llm(self, experiment_id: str) -> list[LLMTaxonomyResult]:
+        """LLM-as-Critic two-dimensional classification of all failed trajectories."""
+        trajs = self._load(experiment_id)
+        failed = [t for t in trajs if t["final_status"] != "success"]
+        if not failed:
+            return []
+
+        async def _run_all():
+            results = []
+            for traj in failed:
+                print(f"  Classifying {traj.get('task_id', '?')}...", flush=True)
+                r = await self._classify_one(traj)
+                results.append(r)
+            return results
+
+        return asyncio.run(_run_all())
+
+    def print_llm_taxonomy(self, results: list[LLMTaxonomyResult]) -> None:
+        """Print a two-dimensional breakdown of LLM-classified failures."""
+        if not results:
+            print("No failed trajectories to classify.")
+            return
+
+        print(f"\n{'='*60}")
+        print("LLM-as-Critic Failure Taxonomy")
+        print(f"{'='*60}")
+        print(f"Classified {len(results)} failed trajectories\n")
+
+        # Dimension 1: goal alignment
+        align_counts: Counter = Counter(r.goal_alignment for r in results)
+        print("Goal Alignment:")
+        for val, cnt in align_counts.most_common():
+            bar = "█" * int(cnt / len(results) * 20)
+            print(f"  {val:<12} {cnt:>3} ({cnt/len(results):.1%}) {bar}")
+
+        print()
+
+        # Dimension 2: execution issue
+        issue_counts: Counter = Counter(r.execution_issue for r in results)
+        print("Execution Issue:")
+        for val, cnt in issue_counts.most_common():
+            bar = "█" * int(cnt / len(results) * 20)
+            print(f"  {val:<12} {cnt:>3} ({cnt/len(results):.1%}) {bar}")
+
+        print()
+
+        # Fixable breakdown
+        fixable = sum(1 for r in results if r.fixable_by_more_steps)
+        print(f"Fixable by more steps: {fixable}/{len(results)} ({fixable/len(results):.1%})")
+
+        print()
+        print("Per-task breakdown:")
+        for r in results:
+            fixable_tag = "[fixable]" if r.fixable_by_more_steps else ""
+            print(f"  {r.task_id:<30} align={r.goal_alignment:<8} issue={r.execution_issue:<10} {fixable_tag}")
+            print(f"    → {r.explanation}")
+
     def print_report(self, stats: TrajectoryStats, taxonomy: list[TaxonomyResult]) -> None:
         """Print a human-readable analysis report."""
         print(f"\n{'='*60}")
@@ -245,6 +421,11 @@ class TrajectoryAnalyzer:
         print(f"Retry rate:          {stats.retry_rate:.1%}")
         print(f"Correction success:  {stats.correction_success_rate:.1%}")
         print()
+        if stats.termination_reasons:
+            print("Termination reasons:")
+            for reason, count in sorted(stats.termination_reasons.items(), key=lambda x: (-x[1], x[0])):
+                print(f"  {reason:<20} {count:>5}")
+            print()
         print("Tool usage distribution:")
         for tool, count in sorted(stats.tool_usage.items(), key=lambda x: -x[1]):
             print(f"  {tool:<20} {count:>5} calls")
