@@ -187,3 +187,157 @@
     - cmd: "python -m pytest test_memoize.py -v"
       expect_exit: 0
   max_steps: 20
+
+# =============================================================================
+# V8 EXPANSION (10 tasks) - higher-discrimination multi-file tasks
+# =============================================================================
+
+- name: refactor_todo_store_package
+  task_id: custom_v8_001
+  difficulty: medium
+  description: >
+    Build a small todo store package with this structure:
+      todo_store/__init__.py
+      todo_store/store.py
+      todo_store/models.py
+    Implement Task(id, title, done=False) and TodoStore with add_task, list_tasks,
+    mark_done, and remove_task. Write tests in test_todo_store.py and ensure all pass.
+  setup_files: []
+  verification:
+    - cmd: "python -m pytest test_todo_store.py -v"
+      expect_exit: 0
+  max_steps: 15
+
+- name: implement_jsonl_log_analyzer
+  task_id: custom_v8_002
+  difficulty: medium
+  description: >
+    Create log_analyzer.py with a function `summarize_jsonl(path)` that reads a JSONL
+    log file and returns counts by level, latest timestamp, and total events.
+    Write tests in test_log_analyzer.py and include at least one malformed-line case.
+  setup_files: []
+  verification:
+    - cmd: "python -m pytest test_log_analyzer.py -v"
+      expect_exit: 0
+  max_steps: 15
+
+- name: implement_rest_client_with_mocked_tests
+  task_id: custom_v8_003
+  difficulty: medium
+  description: >
+    Create api_client.py with a function `fetch_user_name(base_url, user_id)` that calls
+    GET /users/{id} and returns the `name` field. Do not perform real network calls in tests.
+    Write tests in test_api_client.py using mocking and ensure all pass.
+  setup_files: []
+  verification:
+    - cmd: "python -m pytest test_api_client.py -v"
+      expect_exit: 0
+  max_steps: 16
+
+- name: repair_broken_package_imports
+  task_id: custom_v8_004
+  difficulty: medium
+  description: >
+    Create a small package layout with `app/` and fix a deliberately broken import chain so
+    the package can be imported with `from app.service import build_message`. Write tests in
+    test_app_imports.py that verify both imports and behavior.
+  setup_files: []
+  verification:
+    - cmd: "python -m pytest test_app_imports.py -v"
+      expect_exit: 0
+    - cmd: "python -c \"from app.service import build_message; print(build_message('ok'))\""
+      expect_exit: 0
+  max_steps: 16
+
+- name: build_markdown_table_formatter
+  task_id: custom_v8_005
+  difficulty: medium
+  description: >
+    Implement markdown_table.py with a function that formats rows into a valid markdown table
+    with aligned columns. Write tests in test_markdown_table.py covering uneven widths, empty
+    values, and header-only tables.
+  setup_files: []
+  verification:
+    - cmd: "python -m pytest test_markdown_table.py -v"
+      expect_exit: 0
+  max_steps: 14
+
+- name: add_cli_config_loading
+  task_id: custom_v8_006
+  difficulty: hard
+  description: >
+    Build config_cli.py that reads a YAML config file and prints a normalized summary via CLI.
+    Required entrypoint: `python config_cli.py config.yaml`.
+    Write tests in test_config_cli.py covering success and invalid-file behavior.
+  setup_files:
+    - sample_config.yaml
+  verification:
+    - cmd: "python -m pytest test_config_cli.py -v"
+      expect_exit: 0
+    - cmd: "python config_cli.py sample_config.yaml"
+      expect_exit: 0
+  max_steps: 18
+
+- name: implement_dependency_graph_parser
+  task_id: custom_v8_007
+  difficulty: hard
+  description: >
+    Implement dep_graph.py with functions to parse an adjacency-list text file and return
+    both topological order and cycle detection results. Write tests in test_dep_graph.py,
+    including one cyclic graph case and one disconnected graph case.
+  setup_files: []
+  verification:
+    - cmd: "python -m pytest test_dep_graph.py -v"
+      expect_exit: 0
+  max_steps: 18
+
+- name: refactor_csv_pipeline_into_package
+  task_id: custom_v8_008
+  difficulty: hard
+  description: >
+    Create a small package `csv_pipeline/` with modules for loading rows, transforming values,
+    and exporting summaries. Use sample_data.csv as input and write tests in test_csv_pipeline.py.
+    The package should expose `run_pipeline(input_path)` from `csv_pipeline.__init__`.
+  setup_files:
+    - sample_data.csv
+  verification:
+    - cmd: "python -m pytest test_csv_pipeline.py -v"
+      expect_exit: 0
+    - cmd: "python -c \"from csv_pipeline import run_pipeline; print(run_pipeline('sample_data.csv'))\""
+      expect_exit: 0
+  max_steps: 20
+
+- name: add_plugin_registry_system
+  task_id: custom_v8_009
+  difficulty: hard
+  description: >
+    Build a plugin registry package that supports registering functions by name, loading them,
+    and listing available plugins. Organize the code into multiple files and write tests in
+    test_plugin_registry.py that verify registration collisions and lookup behavior.
+  setup_files: []
+  verification:
+    - cmd: "python -m pytest test_plugin_registry.py -v"
+      expect_exit: 0
+  max_steps: 20
+
+- name: implement_async_job_queue
+  task_id: custom_v8_010
+  difficulty: hard
+  description: >
+    Implement async_jobs.py with an asyncio-based in-memory job queue.
+    Required interface:
+      - class AsyncJobQueue(max_workers=1, max_size=0)
+      - async start()
+      - async enqueue(job_id, func, *args, **kwargs)
+      - async shutdown(wait=True)
+      - get_job(job_id)
+      - get_queue_size()
+      - properties: is_running, processed_count
+      - async create_job_queue(max_workers=1, max_size=0)
+    Use the provided test_async_jobs.py as the source of truth and make all tests pass.
+  setup_files:
+    - test_async_jobs.py
+  verification:
+    - cmd: "python -m pytest test_async_jobs.py -v"
+      expect_exit: 0
+  max_steps: 20

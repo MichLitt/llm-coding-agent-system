@@ -86,6 +86,47 @@ def test_safe_print_swallows_oserror(monkeypatch):
     assert calls["count"] == 2
 
 
+def test_build_import_error_guidance_prefers_local_fix(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfg.agent, "workspace", tmp_path)
+    package_dir = tmp_path / "utils"
+    package_dir.mkdir()
+    (package_dir / "__init__.py").write_text("", encoding="utf-8")
+
+    agent = _agent(FakeClient([]))
+    guidance = agent._build_import_error_guidance(
+        "Traceback...\nFile \"main.py\", line 1\nModuleNotFoundError: No module named 'utils'"
+    )
+
+    assert "project-local import" in guidance
+    assert "utils/__init__.py" in guidance
+    assert "before installing anything" in guidance
+
+
+def test_build_import_error_guidance_handles_third_party_module(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfg.agent, "workspace", tmp_path)
+    agent = _agent(FakeClient([]))
+
+    guidance = agent._build_import_error_guidance(
+        "Traceback...\nFile \"main.py\", line 1\nModuleNotFoundError: No module named 'requests'"
+    )
+
+    assert "Only try `pip install`" in guidance
+    assert "requests" in guidance
+
+
+def test_build_import_error_guidance_escalates_repeated_errors(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfg.agent, "workspace", tmp_path)
+    agent = _agent(FakeClient([]))
+
+    guidance = agent._build_import_error_guidance(
+        "Traceback...\nModuleNotFoundError: No module named 'requests'",
+        repeated=True,
+    )
+
+    assert "repeated" in guidance
+    assert "Do not repeat the previous fix blindly" in guidance
+
+
 @pytest.mark.asyncio
 async def test_exit_code_zero_with_stderr_does_not_trigger_failure(monkeypatch):
     async def fake_execute_tools(tool_calls, tool_dict):

@@ -59,9 +59,32 @@ def extract_stderr(content: str) -> str:
     return content.split("STDERR:", maxsplit=1)[-1].strip()
 
 
+def extract_import_error_details(stderr: str) -> dict[str, str | None]:
+    """Parse the missing module and source location from ImportError stderr."""
+    module_name = None
+    source_file = None
+
+    module_match = re.search(r"No module named ['\"]([^'\"]+)['\"]", stderr)
+    if module_match:
+        module_name = module_match.group(1)
+    else:
+        import_match = re.search(r"cannot import name ['\"]([^'\"]+)['\"]", stderr)
+        if import_match:
+            module_name = import_match.group(1)
+
+    file_match = re.search(r'File "([^"]+)"', stderr)
+    if file_match:
+        source_file = file_match.group(1)
+
+    return {
+        "module_name": module_name,
+        "source_file": source_file,
+    }
+
+
 _ERROR_GUIDANCE = {
     "SyntaxError": "There is a syntax error. Rewrite the specific function or block with the error - check brackets, indentation, and colons.",
-    "ImportError": "A module is missing. First run `pip install <package>` via run_command, then retry.",
+    "ImportError": "An import failed. Inspect the traceback, the missing module name, and the file that triggered the import before deciding whether to edit code or install a package.",
     "AssertionError": "An assertion failed. Read the test file to understand expected behavior, then fix the implementation logic.",
     "TimeoutError": "The code timed out. Reconsider the algorithm complexity - look for an O(n log n) or better approach.",
     "LogicError": "There is a logic error. Add debug print statements to trace variable values, analyze the traceback carefully, then fix the root cause.",
@@ -284,6 +307,70 @@ class Agent:
                 # Streaming output should never take down the agent loop.
                 return
 
+    def _build_import_error_guidance(
+        self,
+        stderr_text: str,
+        *,
+        repeated: bool = False,
+    ) -> str:
+        """Generate a more specific ImportError hint using traceback context."""
+        details = extract_import_error_details(stderr_text)
+        module_name = details.get("module_name")
+        source_file = details.get("source_file")
+        workspace = cfg.agent.workspace
+
+        local_candidates: list[str] = []
+        if module_name:
+            module_path = module_name.replace(".", "/")
+            candidate_patterns = [
+                f"{module_path}.py",
+                f"{module_path}/__init__.py",
+                f"**/{module_path}.py",
+                f"**/{module_path}/__init__.py",
+            ]
+            for pattern in candidate_patterns:
+                local_candidates.extend(
+                    path.relative_to(workspace).as_posix()
+                    for path in workspace.glob(pattern)
+                )
+
+        if local_candidates:
+            hint = (
+                f"ImportError detected for `{module_name}`"
+                f"{' from `' + source_file + '`' if source_file else ''}. "
+                "This looks like a project-local import or file-path issue. "
+                "Check the import statement, module path, package layout, and file names before installing anything. "
+                f"Local candidate(s): {', '.join(sorted(set(local_candidates))[:3])}."
+            )
+        elif module_name and "." not in module_name and module_name.isidentifier():
+            hint = (
+                f"ImportError detected for `{module_name}`"
+                f"{' from `' + source_file + '`' if source_file else ''}. "
+                "First inspect the import statement and the triggering file. "
+                "Only try `pip install` if the module is clearly third-party and there is no workspace implementation to fix."
+            )
+        else:
+            hint = (
+                "An import failed. Inspect the traceback, the missing module name, and the file that triggered the import. "
+                "Prefer fixing project-local imports or file names before attempting installation."
+            )
+
+        if repeated:
+            hint += " This same ImportError repeated. Do not repeat the previous fix blindly; re-read the traceback and verify the exact import path."
+
+        return hint
+
+    def _build_error_guidance(
+        self,
+        error_type: str | None,
+        stderr_text: str,
+        *,
+        repeated: bool = False,
+    ) -> str:
+        if error_type == "ImportError":
+            return self._build_import_error_guidance(stderr_text, repeated=repeated)
+        return _ERROR_GUIDANCE.get(error_type, "")
+
     async def _loop(
         self,
         user_input: str,
@@ -298,6 +385,7 @@ class Agent:
         retry_count = 0
         retry_steps = 0
         last_error_type: str | None = None
+        last_error_signature: str | None = None
         project_id: str | None = None
         traj_id: str | None = None
         verification_attempts = 0
@@ -658,12 +746,19 @@ class Agent:
 
                 if correction_enabled and saw_nonzero_exit:
                     retry_count += 1
-                    guidance = _ERROR_GUIDANCE.get(detected_error, "")
-                    if guidance and detected_error != last_error_type and retry_count <= cfg.agent.max_retries:
+                    error_signature = f"{detected_error}:{stderr_text.strip()[:200]}"
+                    repeated_error = error_signature == last_error_signature
+                    guidance = self._build_error_guidance(
+                        detected_error,
+                        stderr_text,
+                        repeated=repeated_error,
+                    )
+                    if guidance and (detected_error != last_error_type or repeated_error) and retry_count <= cfg.agent.max_retries:
                         combined_observation += (
                             f"\n\n[Self-correction hint - {detected_error}]: {guidance}"
                         )
                     last_error_type = detected_error
+                    last_error_signature = error_signature
 
                 if retry_count > cfg.agent.max_retries:
                     if traj_id and finalize_trajectory:

@@ -1,12 +1,38 @@
 """Shell execution tool with safety guardrails."""
 
 import asyncio
+import os
+import signal
+import subprocess
+import sys
 
 from coder_agent.config import cfg
 from coder_agent.tools.base import Tool
 
 _WORKSPACE = cfg.agent.workspace
 BLOCKED_PATTERNS: list[str] = cfg.tools.blocked_commands
+
+
+async def _terminate_process_tree(proc: asyncio.subprocess.Process) -> None:
+    """Terminate a timed-out shell command and any child processes."""
+    if proc.returncode is not None:
+        return
+
+    if sys.platform.startswith("win"):
+        subprocess.run(
+            ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    else:
+        os.killpg(proc.pid, signal.SIGKILL)
+
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=5)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
 
 
 class RunCommandTool(Tool):
@@ -33,11 +59,11 @@ class RunCommandTool(Tool):
             cwd=str(_WORKSPACE),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
+            await _terminate_process_tree(proc)
             raise RuntimeError("command timed out")
         return f"Exit code: {proc.returncode}\nSTDOUT:\n{stdout.decode()}\nSTDERR:\n{stderr.decode()}"
