@@ -1,9 +1,6 @@
-"""Eval runner for custom tasks and HumanEval."""
+"""Eval runner public facade."""
 
 import json
-import shutil
-import subprocess
-import sys
 import time
 import traceback
 from dataclasses import asdict, dataclass, field
@@ -11,7 +8,28 @@ from pathlib import Path
 from typing import Any, Callable
 
 from coder_agent.config import cfg
-from coder_agent.core.agent import VerificationResult
+from coder_agent.eval.eval_checkpoint import (
+    append_checkpoint_result,
+    clear_run_artifacts,
+    load_checkpoint_results,
+    read_manifest,
+    result_paths,
+    write_results_json,
+    write_run_manifest,
+)
+from coder_agent.eval.eval_compare import write_comparison_report
+from coder_agent.eval.eval_verification import (
+    build_verification_hook,
+    expected_checks,
+    finalize_trajectory,
+    normalize_command,
+    run_check,
+    run_custom_checks,
+    run_humaneval_check,
+    verify_custom,
+    verify_humaneval,
+)
+from coder_agent.eval.eval_workspace import prepare_workspace
 from coder_agent.eval.metrics import (
     EvalResult,
     MetricsSummary,
@@ -58,55 +76,22 @@ class EvalRunner:
         self.trajectory_dir = trajectory_dir or cfg.eval.trajectory_dir
 
     def _result_paths(self, config_label: str) -> tuple[Path, Path, Path]:
-        stem = config_label or "results"
-        return (
-            self.output_dir / f"{stem}.json",
-            self.output_dir / f"{stem}.jsonl",
-            self.output_dir / f"{stem}_run_manifest.json",
-        )
+        return result_paths(self.output_dir, config_label)
 
     def _clear_run_artifacts(self, config_label: str) -> None:
-        for path in self._result_paths(config_label):
-            if path.exists():
-                path.unlink()
+        clear_run_artifacts(self.output_dir, config_label)
 
     def _load_checkpoint_results(self, config_label: str) -> list[EvalResult]:
-        _, checkpoint_path, _ = self._result_paths(config_label)
-        if not checkpoint_path.exists():
-            return []
-
-        results: list[EvalResult] = []
-        index_by_task_id: dict[str, int] = {}
-        with checkpoint_path.open(encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                raw = json.loads(line)
-                result = EvalResult(**raw)
-                existing_index = index_by_task_id.get(result.task_id)
-                if existing_index is None:
-                    index_by_task_id[result.task_id] = len(results)
-                    results.append(result)
-                else:
-                    results[existing_index] = result
-        return results
+        return load_checkpoint_results(self.output_dir, config_label)
 
     def _append_checkpoint_result(self, config_label: str, result: EvalResult) -> None:
-        _, checkpoint_path, _ = self._result_paths(config_label)
-        with checkpoint_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(asdict(result), ensure_ascii=False) + "\n")
+        append_checkpoint_result(self.output_dir, config_label, result)
 
     def _write_results_json(self, config_label: str, results: list[EvalResult]) -> None:
-        out_path, _, _ = self._result_paths(config_label)
-        with out_path.open("w", encoding="utf-8") as handle:
-            json.dump([asdict(result) for result in results], handle, indent=2, ensure_ascii=False)
+        write_results_json(self.output_dir, config_label, results)
 
     def _read_manifest(self, config_label: str) -> dict[str, Any]:
-        _, _, manifest_path = self._result_paths(config_label)
-        if not manifest_path.exists():
-            return {}
-        return json.loads(manifest_path.read_text(encoding="utf-8"))
+        return read_manifest(self.output_dir, config_label)
 
     def _write_run_manifest(
         self,
@@ -120,36 +105,17 @@ class EvalRunner:
         started_at: float,
         finished_at: float | None,
     ) -> None:
-        _, _, manifest_path = self._result_paths(config_label)
-        manifest = {
-            "config_label": config_label or "results",
-            "benchmark": benchmark_name,
-            "preset": preset,
-            "git_commit": self._git_commit(),
-            "started_at": started_at,
-            "finished_at": finished_at,
-            "completed_task_ids": [result.task_id for result in results],
-            "total_tasks": total_tasks,
-            "resume_enabled": resume_enabled,
-        }
-        manifest_path.write_text(
-            json.dumps(manifest, indent=2, ensure_ascii=False),
-            encoding="utf-8",
+        write_run_manifest(
+            self.output_dir,
+            config_label,
+            benchmark_name=benchmark_name,
+            preset=preset,
+            total_tasks=total_tasks,
+            results=results,
+            resume_enabled=resume_enabled,
+            started_at=started_at,
+            finished_at=finished_at,
         )
-
-    def _git_commit(self) -> str:
-        try:
-            result = subprocess.run(
-                ["git", "rev-parse", "--short", "HEAD"],
-                capture_output=True,
-                text=True,
-                timeout=3,
-            )
-            if result.returncode == 0:
-                return result.stdout.strip()
-        except Exception:
-            pass
-        return "unknown"
 
     def run_task(
         self,
@@ -157,10 +123,9 @@ class EvalRunner:
         agent: Any,
         config_label: str = "",
     ) -> EvalResult:
-        """Run a single task and return an EvalResult."""
         workspace = cfg.agent.workspace
-        self._prepare_workspace(task, workspace)
-        verification_hook = self._build_verification_hook(task, workspace)
+        prepare_workspace(task.setup_files, workspace)
+        verification_hook = build_verification_hook(task, workspace)
         gate_enabled = bool(getattr(agent, "experiment_config", {}).get("verification_gate", False))
 
         start = time.time()
@@ -169,8 +134,10 @@ class EvalRunner:
                 task.description,
                 task_id=task.task_id,
                 finalize_trajectory=False,
-                verification_hook=verification_hook if gate_enabled else None,
+                verification_hook=verification_hook,
                 max_verification_attempts=task.verification_contract.get("max_attempts", 2),
+                enforce_stop_verification=gate_enabled,
+                auto_complete_on_verification=verification_hook is not None,
             )
         except Exception as exc:
             tb_summary = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).strip()
@@ -195,10 +162,8 @@ class EvalRunner:
                 config_label=config_label,
             )
 
-        checks_passed = 0
         checks_total = self._expected_checks(task)
         error_types: list[str] = []
-
         if task.metadata.get("benchmark") == "humaneval":
             checks_passed, error_message = self._run_humaneval_check(task, workspace)
             if error_message:
@@ -207,16 +172,11 @@ class EvalRunner:
             checks_passed = self._run_custom_checks(task.verification, workspace)
         if getattr(turn_result, "error_details", None):
             error_types.extend(
-                detail for detail in turn_result.error_details
-                if detail and detail not in error_types
+                detail for detail in turn_result.error_details if detail and detail not in error_types
             )
 
         verification_pass_rate = checks_passed / checks_total if checks_total else 0.0
         benchmark_passed = checks_passed == checks_total
-        # Benchmark check is the external ground truth. If benchmark passed and the
-        # agent did not time out, treat the task as cleanly completed even if the
-        # agent's internal final_status was "failed" (e.g. due to a spurious tool
-        # error after the solution was already written and verified).
         agent_completed_cleanly = turn_result.final_status == "success" or (
             benchmark_passed and turn_result.final_status != "timeout"
         )
@@ -262,7 +222,6 @@ class EvalRunner:
         resume: bool = False,
         verbose: bool = True,
     ) -> list[EvalResult]:
-        """Run all tasks and return a list of EvalResult."""
         if resume:
             results = self._load_checkpoint_results(config_label)
             previous_manifest = self._read_manifest(config_label)
@@ -285,8 +244,7 @@ class EvalRunner:
         )
 
         completed_task_ids = {result.task_id for result in results}
-        agent_config = agent_config or {}
-        agent = self.agent_factory(agent_config)
+        agent = self.agent_factory(agent_config or {})
 
         for index, task in enumerate(tasks, start=1):
             if task.task_id in completed_task_ids:
@@ -313,12 +271,9 @@ class EvalRunner:
                 started_at=started_at,
                 finished_at=None,
             )
-            status = "OK" if result.success else "ERR"
             if verbose:
-                print(
-                    f"  {status} checks={result.checks_passed}/{result.checks_total} "
-                    f"steps={result.steps_used}"
-                )
+                status = "OK" if result.success else "ERR"
+                print(f"  {status} checks={result.checks_passed}/{result.checks_total} steps={result.steps_used}")
 
         self._write_results_json(config_label, results)
         self._write_run_manifest(
@@ -348,7 +303,6 @@ class EvalRunner:
         resume: bool = False,
         verbose: bool = True,
     ) -> ComparisonReport:
-        """Run the C1/C2/C3/C4 comparison matrix."""
         all_results: dict[str, list[EvalResult]] = {}
         all_summaries: dict[str, MetricsSummary] = {}
 
@@ -374,30 +328,12 @@ class EvalRunner:
             print("=== COMPARISON RESULTS ===")
             print_metrics_table(list(all_summaries.values()))
 
-        report_stem = f"{report_label}_comparison_report.json" if report_label else "comparison_report.json"
-        report_path = self.output_dir / report_stem
-        with report_path.open("w", encoding="utf-8") as handle:
-            json.dump(
-                {
-                    label: asdict(summary)
-                    for label, summary in all_summaries.items()
-                },
-                handle,
-                indent=2,
-            )
-
-        if report_label:
-            manifest_path = self.output_dir / f"{report_label}_comparison_manifest.json"
-            with manifest_path.open("w", encoding="utf-8") as handle:
-                json.dump(
-                    {
-                        "compare_label": report_label,
-                        "experiments": list(configs.keys()),
-                        "report_path": str(report_path),
-                    },
-                    handle,
-                    indent=2,
-                )
+        write_comparison_report(
+            self.output_dir,
+            report_label=report_label,
+            configs=configs,
+            summaries=all_summaries,
+        )
 
         return ComparisonReport(
             configs=list(configs.keys()),
@@ -406,131 +342,22 @@ class EvalRunner:
         )
 
     def _expected_checks(self, task: TaskSpec) -> int:
-        if task.metadata.get("benchmark") == "humaneval":
-            return 1
-        return max(1, len(task.verification))
+        return expected_checks(task)
 
-    def _prepare_workspace(self, task: TaskSpec, workspace: Path) -> None:
-        workspace.mkdir(parents=True, exist_ok=True)
-        for child in workspace.iterdir():
-            if child.name == ".gitkeep":
-                continue
-            if child.is_dir():
-                shutil.rmtree(child)
-            else:
-                child.unlink()
+    def _run_custom_checks(self, checks: list[dict[str, Any]], workspace: Path) -> int:
+        return run_custom_checks(checks, workspace)
 
-        setup_dir = Path(__file__).parent / "benchmarks" / "custom" / "setup_files"
-        for filename in task.setup_files:
-            src = setup_dir / filename
-            dst = workspace / filename
-            if not src.exists():
-                continue
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+    def _build_verification_hook(self, task: TaskSpec, workspace: Path):
+        return build_verification_hook(task, workspace)
 
-    def _run_custom_checks(
-        self,
-        checks: list[dict[str, Any]],
-        workspace: Path,
-    ) -> int:
-        checks_passed = 0
-        for check in checks:
-            ok, _, _ = self._run_check(check, workspace)
-            if ok:
-                checks_passed += 1
-        return checks_passed
+    def _verify_custom(self, checks: list[dict[str, Any]], workspace: Path):
+        return verify_custom(checks, workspace)
 
-    def _build_verification_hook(
-        self,
-        task: TaskSpec,
-        workspace: Path,
-    ) -> Callable[[], VerificationResult] | None:
-        contract = dict(task.verification_contract)
-        if not contract:
-            if task.metadata.get("benchmark") == "humaneval":
-                contract = {"mode": "humaneval_official", "max_attempts": 2}
-            elif task.verification:
-                contract = {"mode": "custom_commands", "max_attempts": 2}
-            else:
-                return None
+    def _run_humaneval_check(self, task: TaskSpec, workspace: Path):
+        return run_humaneval_check(task, workspace)
 
-        mode = contract.get("mode")
-        if mode == "humaneval_official":
-            return lambda: self._verify_humaneval(task, workspace)
-        if mode == "custom_commands":
-            return lambda: self._verify_custom(task.verification, workspace)
-        return None
-
-    def _verify_custom(
-        self,
-        checks: list[dict[str, Any]],
-        workspace: Path,
-    ) -> VerificationResult:
-        failures: list[str] = []
-        passed = 0
-        for check in checks:
-            ok, stdout, stderr = self._run_check(check, workspace)
-            if ok:
-                passed += 1
-                continue
-            cmd = check.get("cmd", "")
-            signal = (stderr or stdout or "verification command failed").strip().splitlines()[0]
-            failures.append(f"{cmd}: {signal}")
-
-        if passed == len(checks):
-            return VerificationResult(True, "External verification passed.")
-
-        failure_summary = "; ".join(failures[:3])
-        return VerificationResult(
-            False,
-            f"External verification failed ({passed}/{len(checks)} checks passed). {failure_summary}",
-        )
-
-    def _run_humaneval_check(
-        self,
-        task: TaskSpec,
-        workspace: Path,
-    ) -> tuple[int, str | None]:
-        from coder_agent.eval.benchmarks.humaneval import HumanEvalBenchmark, HumanEvalTask
-
-        metadata = task.metadata
-        prompt = metadata.get("prompt", "")
-        entry_point = metadata.get("entry_point", "")
-        test = metadata.get("test", "")
-        if not prompt or not entry_point or not test:
-            return 0, "HumanEval metadata missing"
-
-        benchmark = HumanEvalBenchmark()
-        solution = benchmark.extract_solution_from_workspace(workspace, entry_point)
-        if not solution.strip():
-            return 0, "solution.py not created"
-
-        result = benchmark.evaluate_solution(
-            HumanEvalTask(
-                task_id=task.task_id,
-                prompt=prompt,
-                entry_point=entry_point,
-                test=test,
-                canonical_solution="",
-            ),
-            solution,
-        )
-        if result.passed:
-            return 1, None
-        return 0, result.error or "HumanEval verification failed"
-
-    def _verify_humaneval(
-        self,
-        task: TaskSpec,
-        workspace: Path,
-    ) -> VerificationResult:
-        checks_passed, error_message = self._run_humaneval_check(task, workspace)
-        if checks_passed == 1:
-            return VerificationResult(True, "Official HumanEval verification passed.")
-        summary = (error_message or "HumanEval verification failed").strip()
-        summary = summary.splitlines()[0] if summary else "HumanEval verification failed"
-        return VerificationResult(False, f"Official HumanEval verification failed. {summary}")
+    def _verify_humaneval(self, task: TaskSpec, workspace: Path):
+        return verify_humaneval(task, workspace)
 
     def _finalize_trajectory(
         self,
@@ -541,47 +368,17 @@ class EvalRunner:
         checks_total: int,
         duration: float,
     ) -> None:
-        trajectory_id = getattr(turn_result, "trajectory_id", None)
-        store = getattr(agent, "trajectory_store", None)
-        if not trajectory_id or store is None:
-            return
-
-        partial_score = checks_passed / checks_total if checks_total else 0.0
-        store.finish_trajectory(
-            trajectory_id,
+        finalize_trajectory(
+            agent=agent,
+            turn_result=turn_result,
             final_status=final_status,
-            termination_reason=getattr(turn_result, "termination_reason", None),
-            partial_score=partial_score,
-            total_tokens=getattr(turn_result, "total_tokens", 0),
+            checks_passed=checks_passed,
+            checks_total=checks_total,
             duration=duration,
         )
 
     def _run_check(self, check: dict[str, Any], workspace: Path) -> tuple[bool, str, str]:
-        """Run a single verification command."""
-        cmd = check.get("cmd", "")
-        expect_exit = check.get("expect_exit", 0)
-        if not cmd:
-            return True, "", ""
-        normalized_cmd = self._normalize_command(cmd)
-        try:
-            result = subprocess.run(
-                normalized_cmd,
-                shell=True,
-                cwd=str(workspace),
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            return result.returncode == expect_exit, result.stdout, result.stderr
-        except subprocess.TimeoutExpired:
-            return False, "", "TimeoutExpired"
-        except Exception as exc:
-            return False, "", str(exc)
+        return run_check(check, workspace)
 
     def _normalize_command(self, cmd: str) -> str:
-        """Run verification commands with the current interpreter when possible."""
-        if cmd.startswith("python "):
-            return f'"{sys.executable}" {cmd[len("python "):]}'
-        if cmd.startswith("pytest "):
-            return f'"{sys.executable}" -m {cmd}'
-        return cmd
+        return normalize_command(cmd)

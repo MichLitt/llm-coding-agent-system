@@ -6,15 +6,19 @@ License: [MIT](./LICENSE).
 
 ## Core Capabilities
 
+- Interactive multi-turn CLI session via `coder-agent` / `python -m coder_agent`
 - ReAct-style agent loop with tool calling and self-correction
 - Task-aware verification gate for benchmark termination
 - Custom benchmark runner for multi-step coding tasks
 - HumanEval runner for function-level benchmark evaluation
 - Trajectory analysis, failure taxonomy, and experiment comparison
 
-## Current Best Results
+## Current Status
 
-The latest public results are summarized in [IMPROVEMENT_REPORT_v8.md](./report/IMPROVEMENT_REPORT_v8.md).
+The best high-level entry for version `0.3.0` is [IMPROVEMENT_SUMMARY.md](./report/IMPROVEMENT_SUMMARY.md).
+The latest runtime-hardening details are in [IMPROVEMENT_REPORT_v9.md](./report/IMPROVEMENT_REPORT_v9.md).
+The latest code-structure and CLI refactor is summarized in [REFACTOR_REPORT_v1.md](./report/REFACTOR_REPORT_v1.md).
+The benchmark tables below remain the promoted v8 best-result numbers because v9 did not include a full HumanEval re-run and its Custom re-runs were treated as engineering validation rather than new public baselines.
 
 ### HumanEval (164 tasks)
 
@@ -52,19 +56,41 @@ cp .env.example .env
 
 Set your model credentials in `.env`.
 
-### 2. Run the agent on a single task
+### 2. Start an interactive session
+
+```bash
+uv run python -m coder_agent
+```
+
+You can also use:
+
+```bash
+uv run python -m coder_agent chat
+```
+
+Available in-session commands:
+
+```text
+/help
+/status
+/reset
+/clear
+/exit
+```
+
+### 3. Run the agent on a single task
 
 ```bash
 uv run python -m coder_agent run "Create a Flask API with user auth"
 ```
 
-### 3. Run one benchmark task
+### 4. Run one benchmark task
 
 ```bash
 uv run python -m coder_agent eval --benchmark custom --limit 1 --config-label demo
 ```
 
-### 4. Analyze an experiment
+### 5. Analyze an experiment
 
 ```bash
 uv run python -m coder_agent analyze demo
@@ -74,6 +100,9 @@ uv run python -m coder_agent analyze demo
 
 Highlighted reports:
 
+- [IMPROVEMENT_SUMMARY.md](./report/IMPROVEMENT_SUMMARY.md)
+- [REFACTOR_REPORT_v1.md](./report/REFACTOR_REPORT_v1.md)
+- [IMPROVEMENT_REPORT_v9.md](./report/IMPROVEMENT_REPORT_v9.md)
 - [IMPROVEMENT_REPORT_v8.md](./report/IMPROVEMENT_REPORT_v8.md)
 - [IMPROVEMENT_REPORT_v7.md](./report/IMPROVEMENT_REPORT_v7.md)
 - [IMPROVEMENT_REPORT_v6.md](./report/IMPROVEMENT_REPORT_v6.md)
@@ -92,9 +121,9 @@ Notes:
 
 ```text
 coder_agent/
-  cli/          CLI entrypoints
-  core/         agent loop, context, decomposer, LLM client
-  eval/         benchmarks, runner, metrics, analysis
+  cli/          command registry, REPL, and command modules
+  core/         agent facade, runtime loop, context, session, LLM client
+  eval/         benchmarks, runner facade, verification, analysis modules
   memory/       memory manager and trajectory store
   tools/        file, shell, and search tools
 tests/          automated tests
@@ -115,6 +144,12 @@ Continuous integration runs on GitHub Actions with Python 3.12 and checks:
 
 - `uv run pytest`
 - `uv run python -m coder_agent --help`
+
+Default interactive mode:
+
+```bash
+uv run python -m coder_agent
+```
 
 Show available CLI commands:
 

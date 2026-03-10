@@ -10,6 +10,7 @@ from coder_agent.core.agent import (
     TERMINATION_LOOP_EXCEPTION,
     TERMINATION_MAX_STEPS,
     TERMINATION_MODEL_STOP,
+    TERMINATION_VERIFICATION_PASSED,
     TERMINATION_RETRY_EXHAUSTED,
     TERMINATION_TOOL_NONZERO_EXIT,
     TERMINATION_VERIFICATION_FAILED,
@@ -54,6 +55,14 @@ def _final_response(text: str = "done") -> dict:
     return {
         "content": [{"type": "text", "text": text}],
         "tool_uses": [],
+    }
+
+
+def _parse_error_response() -> dict:
+    return {
+        "content": [{"type": "text", "text": "<think>bad tool call</think>"}],
+        "tool_uses": [],
+        "parse_errors": ["run_command: malformed tool arguments (Expecting value at char 10). Raw: {bad"],
     }
 
 
@@ -235,6 +244,80 @@ async def test_verification_hook_passes_and_allows_model_stop(monkeypatch):
 
     assert result.success is True
     assert result.termination_reason == TERMINATION_MODEL_STOP
+
+
+@pytest.mark.asyncio
+async def test_auto_complete_on_verification_stops_after_successful_tool_batch(monkeypatch):
+    async def fake_execute_tools(tool_calls, tool_dict):
+        return [{
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": "Exit code: 0\nSTDOUT:\n\nSTDERR:\n",
+        }]
+
+    monkeypatch.setattr(agent_module, "execute_tools", fake_execute_tools)
+    agent = _agent(FakeClient([_tool_call_response()]), {"correction": True})
+
+    result = await agent._loop(
+        "task",
+        verification_hook=lambda: VerificationResult(True, "official pass"),
+        auto_complete_on_verification=True,
+    )
+
+    assert result.success is True
+    assert result.termination_reason == TERMINATION_VERIFICATION_PASSED
+    assert result.content == "official pass"
+
+
+@pytest.mark.asyncio
+async def test_auto_complete_on_verification_does_not_short_circuit_on_failed_check(monkeypatch):
+    async def fake_execute_tools(tool_calls, tool_dict):
+        return [{
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": "Exit code: 0\nSTDOUT:\n\nSTDERR:\n",
+        }]
+
+    monkeypatch.setattr(agent_module, "execute_tools", fake_execute_tools)
+    client = FakeClient([_tool_call_response(), _final_response("done")])
+    agent = _agent(client, {"correction": True})
+    attempts = {"count": 0}
+
+    def verification_hook():
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return VerificationResult(False, "not yet")
+        return VerificationResult(True, "passed")
+
+    result = await agent._loop(
+        "task",
+        verification_hook=verification_hook,
+        auto_complete_on_verification=True,
+    )
+
+    assert result.success is True
+    assert result.termination_reason == TERMINATION_MODEL_STOP
+    assert attempts["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_parse_errors_request_retry_instead_of_stopping(monkeypatch):
+    async def fake_execute_tools(tool_calls, tool_dict):
+        return [{
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": "Exit code: 0\nSTDOUT:\n\nSTDERR:\n",
+        }]
+
+    monkeypatch.setattr(agent_module, "execute_tools", fake_execute_tools)
+    client = FakeClient([_parse_error_response(), _tool_call_response(), _final_response("done")])
+    agent = _agent(client, {"correction": True})
+
+    result = await agent._loop("task")
+
+    assert result.success is True
+    assert result.termination_reason == TERMINATION_MODEL_STOP
+    assert client.index == 3
 
 
 @pytest.mark.asyncio

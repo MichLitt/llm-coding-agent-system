@@ -12,12 +12,23 @@ class DummyAgent:
     def reset(self) -> None:
         return None
 
-    def run(self, description, task_id="", finalize_trajectory=True, verification_hook=None, max_verification_attempts=2):
+    def run(
+        self,
+        description,
+        task_id="",
+        finalize_trajectory=True,
+        verification_hook=None,
+        max_verification_attempts=2,
+        enforce_stop_verification=True,
+        auto_complete_on_verification=False,
+    ):
         self.run_calls.append({
             "description": description,
             "task_id": task_id,
             "verification_hook": verification_hook,
             "max_verification_attempts": max_verification_attempts,
+            "enforce_stop_verification": enforce_stop_verification,
+            "auto_complete_on_verification": auto_complete_on_verification,
         })
         return type("TurnResult", (), {
             "final_status": "success",
@@ -136,7 +147,7 @@ def test_run_suite_without_resume_clears_old_checkpoint(tmp_path):
     assert "fresh_task" in checkpoint_content
 
 
-def test_run_task_passes_verification_hook_only_when_gate_enabled(tmp_path):
+def test_run_task_routes_stop_gate_and_auto_complete_independently(tmp_path):
     task = TaskSpec(
         task_id="custom_task",
         description="fix task",
@@ -150,7 +161,11 @@ def test_run_task_passes_verification_hook_only_when_gate_enabled(tmp_path):
     assert result.success is True
     assert gate_agent.run_calls[0]["verification_hook"] is not None
     assert gate_agent.run_calls[0]["max_verification_attempts"] == 2
+    assert gate_agent.run_calls[0]["enforce_stop_verification"] is True
+    assert gate_agent.run_calls[0]["auto_complete_on_verification"] is True
 
     no_gate_agent = DummyAgent({"verification_gate": False})
     runner.run_task(task, no_gate_agent, config_label="c3")
-    assert no_gate_agent.run_calls[0]["verification_hook"] is None
+    assert no_gate_agent.run_calls[0]["verification_hook"] is not None
+    assert no_gate_agent.run_calls[0]["enforce_stop_verification"] is False
+    assert no_gate_agent.run_calls[0]["auto_complete_on_verification"] is True

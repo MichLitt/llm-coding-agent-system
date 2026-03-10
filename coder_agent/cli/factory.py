@@ -1,0 +1,71 @@
+from pathlib import Path
+
+from coder_agent.config import cfg
+from coder_agent.core.agent import Agent, build_tools
+from coder_agent.core.llm_client import LLMClient
+from coder_agent.core.session import AgentSession
+from coder_agent.memory.manager import MemoryManager
+from coder_agent.memory.trajectory import TrajectoryStore
+
+
+CONFIG_PRESETS: dict[str, dict] = {
+    "default": {},
+    "C1": {"correction": False, "memory": False, "planning_mode": "direct"},
+    "C2": {"correction": False, "memory": False, "planning_mode": "react"},
+    "C3": {"correction": True, "memory": False, "planning_mode": "react"},
+    "C4": {"correction": True, "memory": True, "planning_mode": "react"},
+    "C5": {"correction": True, "memory": True, "planning_mode": "react", "checklist": True},
+    "C6": {"correction": True, "memory": False, "planning_mode": "react", "verification_gate": True},
+}
+
+
+def resolve_agent_config(preset: str) -> dict:
+    return dict(CONFIG_PRESETS.get(preset, {}))
+
+
+def make_agent(
+    agent_config: dict | None = None,
+    *,
+    model: str | None = None,
+    no_memory: bool = False,
+    experiment_id: str = "default",
+    trajectory_store: TrajectoryStore | None = None,
+) -> Agent:
+    if model:
+        cfg.model.name = model
+
+    agent_config = agent_config or {}
+    memory_enabled = agent_config.get("memory", cfg.agent.enable_memory)
+    memory = None
+    if not no_memory and memory_enabled:
+        memory = MemoryManager(cfg.agent.memory_db_path)
+
+    return Agent(
+        tools=build_tools(),
+        client=LLMClient(),
+        memory=memory,
+        trajectory_store=trajectory_store,
+        experiment_id=experiment_id,
+        experiment_config=agent_config,
+    )
+
+
+def make_trajectory_store(trajectory_dir: str | None) -> TrajectoryStore | None:
+    if not trajectory_dir:
+        return None
+    return TrajectoryStore(Path(trajectory_dir))
+
+
+def make_session(
+    *,
+    model: str | None = None,
+    no_memory: bool = False,
+    agent_config: dict | None = None,
+) -> AgentSession:
+    return AgentSession(
+        make_agent(
+            agent_config=agent_config,
+            model=model,
+            no_memory=no_memory,
+        )
+    )
