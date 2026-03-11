@@ -15,35 +15,34 @@ License: [MIT](./LICENSE).
 
 ## Current Status
 
-The best high-level entry for version `0.3.0` is [IMPROVEMENT_SUMMARY.md](./report/IMPROVEMENT_SUMMARY.md).
-The latest runtime-hardening details are in [IMPROVEMENT_REPORT_v9.md](./report/IMPROVEMENT_REPORT_v9.md).
-The latest code-structure and CLI refactor is summarized in [REFACTOR_REPORT_v1.md](./report/REFACTOR_REPORT_v1.md).
-The benchmark tables below remain the promoted v8 best-result numbers because v9 did not include a full HumanEval re-run and its Custom re-runs were treated as engineering validation rather than new public baselines.
+Version `0.4.0` is now the accepted same-code baseline for the current branch. The repo no longer uses historical `v8`/`v9` benchmark tables or the first `0.4.0` RC rerun as the default public story. The source of truth is the final artifact set produced on March 11, 2026 from the current codebase.
 
-### HumanEval (164 tasks)
+Key points:
 
-| Config | Benchmark Pass | Clean Completion | Strict Success | Avg Steps | Avg Tokens |
-|--------|---------------:|-----------------:|---------------:|----------:|-----------:|
-| C3 (react + correction) | 96.3% (158/164) | 100.0% (164/164) | 96.3% (158/164) | 3.05 | 410 |
-| C5 (C4 + checklist) | 80.5% (132/164) | 95.7% (157/164) | 80.5% (132/164) | 3.03 | 397.5 |
-| **C6 (C3 + verification gate, v8)** | **98.2% (161/164)** | 96.3% (158/164) | 96.3% (158/164) | **3.49** | **410** |
+- The supported runtime path is an OpenAI-compatible backend configured with `LLM_API_KEY` and optional `LLM_BASE_URL`.
+- `model.provider` remains in config for compatibility, but is informational only in `0.4.0`.
+- The active day-to-day presets are `default`, `C3`, `C4`, and `C6`.
+- `C3`, `C4`, and `C6` are the only benchmark-candidate presets for `0.4.0`.
+- `C5` remains available for checklist experiments, but it is explicitly non-promoted.
 
-### Custom Benchmark (21-task v8 suite)
+Recommended reading:
 
-| Config | Benchmark Pass | Clean Completion | Strict Success | Avg Steps | Retry Cost |
-|--------|---------------:|---------------:|----------:|-----------:|
-| **C4 (react + correction + memory)** | **100.0% (21/21)** | **95.2% (20/21)** | **95.2% (20/21)** | 7.95 | 8.4% |
-| C5 (C4 + checklist) | 90.5% (19/21) | 85.7% (18/21) | 85.7% (18/21) | **7.33** | 8.4% |
-| C6 (C3 + verification gate) | 95.2% (20/21) | 90.5% (19/21) | 90.5% (19/21) | 8.10 | **4.7%** |
+- [BASELINE_0_4_0.md](./report/BASELINE_0_4_0.md)
+- [IMPROVEMENT_SUMMARY_0_4_0.md](./report/IMPROVEMENT_SUMMARY_0_4_0.md)
+- [REBASELINE_PLAYBOOK_0_4_0.md](./report/REBASELINE_PLAYBOOK_0_4_0.md)
+- [IMPROVEMENT_REPORT_v10.md](./report/IMPROVEMENT_REPORT_v10.md)
+- [IMPROVEMENT_SUMMARY.md](./report/IMPROVEMENT_SUMMARY.md) - archived `0.3.0` summary
+- [BASELINE_0_4_0_RC.md](./report/BASELINE_0_4_0_RC.md) - archived RC baseline
 
-Key takeaways:
+### Preset Guidance
 
-- `C6` is the strongest HumanEval configuration in benchmark pass at 98.2% (161/164).
-- On the expanded 21-task Custom suite, `C4` is the strongest configuration by benchmark pass and strict success.
-- `C5` remains the most step-efficient Custom configuration, but it gives up too much correctness on the harder v8 tasks.
-- `C6` reduces retry cost on Custom tasks, but does not outperform `C4` on final task completion.
-- `v8` fixed the previous `ImportError` failure on HumanEval_137, but exposed a new termination-quality issue on a small number of tasks that pass verification yet still end in `max_steps`.
-- Full raw experiment artifacts are not committed to the public repo by default. Reproduce them locally if needed.
+| Preset | Primary use | 0.4.0 status |
+|--------|-------------|--------------|
+| `default` | Config-driven interactive use | Active |
+| `C3` | ReAct + correction baseline | Benchmark candidate |
+| `C4` | Multi-step tasks with memory | Benchmark candidate |
+| `C5` | Checklist/decomposer experiments | Experimental |
+| `C6` | Verification-gated ReAct baseline | Benchmark candidate |
 
 ## Quick Start
 
@@ -54,7 +53,7 @@ uv sync
 cp .env.example .env
 ```
 
-Set your model credentials in `.env`.
+Set `LLM_API_KEY` in `.env`. If your provider exposes an OpenAI-compatible endpoint at a custom URL, also set `LLM_BASE_URL`.
 
 ### 2. Start an interactive session
 
@@ -87,7 +86,7 @@ uv run python -m coder_agent run "Create a Flask API with user auth"
 ### 4. Run one benchmark task
 
 ```bash
-uv run python -m coder_agent eval --benchmark custom --limit 1 --config-label demo
+uv run python -m coder_agent eval --benchmark custom --preset C4 --limit 1 --config-label demo
 ```
 
 ### 5. Analyze an experiment
@@ -96,26 +95,41 @@ uv run python -m coder_agent eval --benchmark custom --limit 1 --config-label de
 uv run python -m coder_agent analyze demo
 ```
 
-## Evaluation and Reports
+## Evaluation and Re-Baselining
 
-Highlighted reports:
+The public `0.4.0` benchmark contract is:
 
-- [IMPROVEMENT_SUMMARY.md](./report/IMPROVEMENT_SUMMARY.md)
-- [REFACTOR_REPORT_v1.md](./report/REFACTOR_REPORT_v1.md)
-- [IMPROVEMENT_REPORT_v9.md](./report/IMPROVEMENT_REPORT_v9.md)
-- [IMPROVEMENT_REPORT_v8.md](./report/IMPROVEMENT_REPORT_v8.md)
-- [IMPROVEMENT_REPORT_v7.md](./report/IMPROVEMENT_REPORT_v7.md)
-- [IMPROVEMENT_REPORT_v6.md](./report/IMPROVEMENT_REPORT_v6.md)
-- [IMPROVEMENT_REPORT_v5.md](./report/IMPROVEMENT_REPORT_v5.md)
+- run full `custom` and full `humaneval`
+- use `C3`, `C4`, and `C6` only for promoted `0.4.0` benchmark tables
+- cite final accepted artifacts by exact artifact name
+- keep release-candidate artifacts as archive/reference only
 
-Additional archived plans and earlier reports remain under [`report/`](./report/).
+Exact commands, artifact naming, and release acceptance checks live in [REBASELINE_PLAYBOOK_0_4_0.md](./report/REBASELINE_PLAYBOOK_0_4_0.md).
+
+The current accepted `0.4.0` benchmark results are recorded in [BASELINE_0_4_0.md](./report/BASELINE_0_4_0.md).
+
+Final promoted artifacts:
+
+- HumanEval primary: `humaneval_040_final_c6` -> `161/164 = 98.2%`
+- HumanEval supporting: `humaneval_040_final_c3` -> `157/164 = 95.7%`
+- Custom primary: `custom_040_final_cmp_retry_C6` -> `21/21 = 100.0%`
+- Custom supporting compare: `custom_040_final_cmp_C3` -> `20/21 = 95.2%`
+- Custom supporting memory compare: `custom_040_final_cmp_retry_C4` -> `20/21 = 95.2%`
+- Custom standalone memory reference: `custom_040_final_c4` -> `19/21 = 90.5%`
+
+Important note:
+
+- the first `custom_040_final_cmp` compare run produced a clean `C3` lane, but its `C4` and `C6` lanes were materially degraded by provider/API connection failures during `llm.chat`
+- `custom_040_final_cmp_retry_C4` and `custom_040_final_cmp_retry_C6` supersede those polluted `C4`/`C6` compare artifacts and are now the accepted final compare metrics
+- the original `custom_040_final_cmp_C4` and `custom_040_final_cmp_C6` artifacts are retained for audit/history only and are no longer part of the accepted final metric set
+
+Historical reports remain available under [`report/`](./report/), but they are now archive/reference material rather than the current-branch source of truth.
 
 Notes:
 
 - `results/`, `trajectories/`, and `memory/` are local runtime outputs and are ignored by Git.
 - For resumed runs, treat final `results/*.json` files as the metric source of truth.
 - Trajectory files are primarily for debugging, failure inspection, and taxonomy analysis.
-- The Custom v8 comparison includes a benchmark hardening fix for `custom_v8_010`; `C6` was re-run after that fix, while `C4/C5` retained successful runs on the same task.
 
 ## Repository Structure
 
@@ -127,7 +141,7 @@ coder_agent/
   memory/       memory manager and trajectory store
   tools/        file, shell, and search tools
 tests/          automated tests
-report/         public experiment reports and project notes
+report/         public experiment reports and re-baselining notes
 config.yaml     runtime defaults
 pyproject.toml  project metadata and dependencies
 ```
@@ -140,7 +154,7 @@ Run the test suite:
 uv run pytest
 ```
 
-Continuous integration runs on GitHub Actions with Python 3.12 and checks:
+Continuous integration checks:
 
 - `uv run pytest`
 - `uv run python -m coder_agent --help`

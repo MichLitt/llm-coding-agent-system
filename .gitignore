@@ -9,3 +9,13 @@ trajectories/
 __pycache__/
 *.pyc
 *.db
+
+# Scratch planning/eval notes under report/
+report/CoderAgent_Execution_Plan.md
+report/CoderAgent_Plan_v2.md
+report/CoderAgent_Plan_v3.md
+report/EVAL_BATCH_REPORT.md
+report/EVAL_COMPARISON_REPORT.md
+report/IMPROVEMENT_REPORT_v2.md
+report/IMPROVEMENT_REPORT_v3.md
+report/IMPROVEMENT_REPORT_v4.md
