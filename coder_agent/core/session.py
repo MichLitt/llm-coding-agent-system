@@ -27,6 +27,10 @@ class AgentSession:
         self.agent.reset()
         self.turns = 0
 
+    def close(self) -> None:
+        if hasattr(self.agent, "close"):
+            self.agent.close()
+
     def session_metadata(self) -> SessionMetadata:
         return SessionMetadata(
             model=getattr(self.agent, "_model_cfg").model,

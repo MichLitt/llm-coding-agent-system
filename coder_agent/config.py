@@ -9,7 +9,7 @@ Usage
 -----
     from coder_agent.config import cfg
 
-    cfg.model.name          # "MiniMax-M2.5"
+    cfg.model.name          # backend model name
     cfg.agent.max_steps     # 15
     cfg.eval.trajectory_dir # Path("trajectories/")
 """
@@ -23,14 +23,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-_ROOT = Path(__file__).parent.parent  # project root
+_ROOT = Path(__file__).parent.parent
 
 
 def _load_yaml() -> dict:
     yaml_path = _ROOT / "config.yaml"
     if yaml_path.exists():
-        with open(yaml_path, encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
+        with open(yaml_path, encoding="utf-8") as file:
+            return yaml.safe_load(file) or {}
     return {}
 
 
@@ -39,13 +39,14 @@ _Y = _load_yaml()
 
 @dataclass
 class ModelConfig:
+    # Informational only for now; runtime uses an OpenAI-compatible backend.
     provider: str = _Y.get("model", {}).get("provider", "minimax")
     name: str = os.environ.get("CODER_MODEL", _Y.get("model", {}).get("name", "MiniMax-M2.5"))
     temperature: float = float(_Y.get("model", {}).get("temperature", 0.2))
     max_tokens: int = int(os.environ.get("CODER_MAX_TOKENS", _Y.get("model", {}).get("max_tokens", 8192)))
     seed: int = int(_Y.get("model", {}).get("seed", 42))
 
-    # LLM API credentials (from .env only — never put in YAML)
+    # LLM API credentials come from .env only.
     api_key: str = field(default_factory=lambda: os.environ.get("LLM_API_KEY", ""))
     base_url: str = field(default_factory=lambda: os.environ.get("LLM_BASE_URL", ""))
 
@@ -55,11 +56,24 @@ class AgentConfig:
     max_steps: int = int(os.environ.get("CODER_MAX_STEPS", _Y.get("agent", {}).get("max_steps", 15)))
     max_retries: int = int(os.environ.get("CODER_MAX_RETRIES", _Y.get("agent", {}).get("max_retries", 3)))
     planning_mode: str = _Y.get("agent", {}).get("planning_mode", "react")
-    enable_correction: bool = os.environ.get("CODER_CORRECTION_ENABLED", str(_Y.get("agent", {}).get("enable_correction", True))).lower() == "true"
-    enable_memory: bool = os.environ.get("CODER_MEMORY_ENABLED", str(_Y.get("agent", {}).get("enable_memory", False))).lower() == "true"
-    enable_checklist: bool = os.environ.get("CODER_CHECKLIST_ENABLED", str(_Y.get("agent", {}).get("enable_checklist", False))).lower() == "true"
+    enable_correction: bool = os.environ.get(
+        "CODER_CORRECTION_ENABLED",
+        str(_Y.get("agent", {}).get("enable_correction", True)),
+    ).lower() == "true"
+    enable_memory: bool = os.environ.get(
+        "CODER_MEMORY_ENABLED",
+        str(_Y.get("agent", {}).get("enable_memory", False)),
+    ).lower() == "true"
+    enable_checklist: bool = os.environ.get(
+        "CODER_CHECKLIST_ENABLED",
+        str(_Y.get("agent", {}).get("enable_checklist", False)),
+    ).lower() == "true"
     verbose: bool = os.environ.get("CODER_VERBOSE", "false").lower() == "true"
-    workspace: Path = field(default_factory=lambda: Path(os.environ.get("CODER_WORKSPACE", str(_ROOT / "workspace"))).resolve())
+    workspace: Path = field(
+        default_factory=lambda: Path(
+            os.environ.get("CODER_WORKSPACE", str(_ROOT / "workspace"))
+        ).resolve()
+    )
     memory_db_path: Path = field(default_factory=lambda: _ROOT / "memory" / "agent_memory.db")
 
 
@@ -86,7 +100,9 @@ class ContextConfig:
 @dataclass
 class EvalConfig:
     output_dir: Path = field(default_factory=lambda: _ROOT / _Y.get("eval", {}).get("output_dir", "results/"))
-    trajectory_dir: Path = field(default_factory=lambda: _ROOT / _Y.get("eval", {}).get("trajectory_dir", "trajectories/"))
+    trajectory_dir: Path = field(
+        default_factory=lambda: _ROOT / _Y.get("eval", {}).get("trajectory_dir", "trajectories/")
+    )
     random_seed: int = int(_Y.get("eval", {}).get("random_seed", 42))
 
 
@@ -101,9 +117,7 @@ class Config:
 
 cfg = Config()
 
-# ---------------------------------------------------------------------------
-# Flat aliases for backward-compatibility with code that imports from config
-# ---------------------------------------------------------------------------
+# Backward-compatible aliases.
 MODEL = cfg.model.name
 MAX_TOKENS = cfg.model.max_tokens
 MAX_STEPS = cfg.agent.max_steps

@@ -7,7 +7,13 @@ from coder_agent.core.agent import Agent
 from coder_agent.eval.runner import EvalRunner, TaskSpec
 from coder_agent.memory.trajectory import TrajectoryStore
 
-from .factory import make_agent, resolve_agent_config
+from .factory import (
+    BENCHMARK_CANDIDATE_PRESETS,
+    CONFIG_PRESETS,
+    invalid_preset_labels,
+    make_agent,
+    resolve_agent_config,
+)
 
 
 @click.command(name="eval")
@@ -15,7 +21,15 @@ from .factory import make_agent, resolve_agent_config
 @click.option("--task-dir", default=None, type=click.Path(), help="Directory with custom task YAML (default: built-in)")
 @click.option("--output", default=None, type=click.Path(), help="Output directory for results")
 @click.option("--limit", default=0, type=int, help="Limit number of tasks (0 = all)")
-@click.option("--compare", default=None, help="Comma-separated config labels to compare: C1,C2,C3,C4")
+@click.option("--task-id", "task_ids", multiple=True, help="Run only the specified task_id values. Can be repeated.")
+@click.option(
+    "--compare",
+    default=None,
+    help=(
+        "Comma-separated config labels to compare. "
+        f"For 0.4.0 benchmark candidates, use {','.join(BENCHMARK_CANDIDATE_PRESETS)}."
+    ),
+)
 @click.option("--preset", type=click.Choice(["default", "C1", "C2", "C3", "C4", "C5", "C6"]), default="default", help="Single-run config preset to use")
 @click.option("--resume", is_flag=True, help="Resume from checkpoint files for this config label")
 @click.option("--config-label", default="eval", help="Label for this run (used in output filenames)")
@@ -24,6 +38,7 @@ def eval_command(
     task_dir: str | None,
     output: str | None,
     limit: int,
+    task_ids: tuple[str, ...],
     compare: str | None,
     preset: str,
     resume: bool,
@@ -67,12 +82,30 @@ def eval_command(
 
         yaml_path = Path(task_dir) / "tasks.yaml" if task_dir else None
         tasks = load_custom_tasks(yaml_path) if yaml_path else load_custom_tasks()
-        if limit > 0:
-            tasks = tasks[:limit]
-        click.echo(f"Loaded {len(tasks)} custom tasks")
+
+    if task_ids:
+        wanted = list(dict.fromkeys(task_ids))
+        available = {task.task_id for task in tasks}
+        missing = [task_id for task_id in wanted if task_id not in available]
+        if missing:
+            raise click.UsageError("Unknown task id(s): " + ", ".join(missing))
+        wanted_set = set(wanted)
+        tasks = [task for task in tasks if task.task_id in wanted_set]
+
+    if limit > 0:
+        tasks = tasks[:limit]
+    click.echo(f"Loaded {len(tasks)} {benchmark} tasks")
 
     if compare:
         labels = [label.strip() for label in compare.split(",")]
+        invalid_labels = invalid_preset_labels(labels)
+        if invalid_labels:
+            raise click.UsageError(
+                "Unknown preset label(s): "
+                + ", ".join(invalid_labels)
+                + ". Valid presets: "
+                + ", ".join(sorted(CONFIG_PRESETS))
+            )
         label_map = {label: f"{config_label}_{label}" if config_label else label for label in labels}
         configs = {label_map[label]: resolve_agent_config(label) for label in labels}
 

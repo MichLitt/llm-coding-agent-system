@@ -1,6 +1,7 @@
 """File system tools: read, write/edit, and list directory."""
 
 from pathlib import Path
+from typing import Any
 
 from coder_agent.config import cfg
 from coder_agent.tools.base import Tool
@@ -25,28 +26,65 @@ class ReadFileTool(Tool):
                 "type": "object",
                 "properties": {
                     "path": {"type": "string"},
+                    "start_line": {"type": "integer", "default": 1},
                     "max_lines": {"type": "integer", "default": 0},
+                    "min_lines": {
+                        "anyOf": [
+                            {"type": "integer"},
+                            {"type": "string"},
+                        ]
+                    },
                 },
                 "required": ["path"],
             },
         )
 
-    async def execute(self, path: str, max_lines: int = 0) -> str:
+    def _normalize_start_line(
+        self,
+        *,
+        start_line: int = 1,
+        min_lines: Any = None,
+    ) -> int:
+        if start_line != 1:
+            return max(1, int(start_line))
+        if min_lines is None:
+            return 1
+        if isinstance(min_lines, str):
+            min_lines = min_lines.strip()
+            if not min_lines:
+                return 1
+            if min_lines.isdigit():
+                return max(1, int(min_lines))
+            raise ValueError("min_lines must be an integer or numeric string")
+        return max(1, int(min_lines))
+
+    async def execute(
+        self,
+        path: str,
+        max_lines: int = 0,
+        start_line: int = 1,
+        min_lines: Any = None,
+    ) -> str:
         full_path = _safe_path(path)
         if full_path is None:
             return "Error: path escapes workspace"
         if not full_path.is_file():
             return f"Error: file not found: {path}"
         try:
+            start_line = self._normalize_start_line(start_line=start_line, min_lines=min_lines)
             with full_path.open("r", encoding="utf-8", errors="replace") as f:
-                if max_lines > 0:
+                if start_line > 1 or max_lines > 0:
                     lines = []
-                    for i, line in enumerate(f):
-                        if i >= max_lines:
+                    for i, line in enumerate(f, start=1):
+                        if i < start_line:
+                            continue
+                        if max_lines > 0 and len(lines) >= max_lines:
                             break
                         lines.append(line)
                     return "".join(lines)
                 return f.read()
+        except ValueError as e:
+            return f"Error: {e}"
         except Exception as e:
             return f"Error: {e}"
 

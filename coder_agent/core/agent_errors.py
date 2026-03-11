@@ -6,24 +6,52 @@ from coder_agent.config import cfg
 _ERROR_GUIDANCE = {
     "SyntaxError": "There is a syntax error. Rewrite the specific function or block with the error - check brackets, indentation, and colons.",
     "ImportError": "An import failed. Inspect the traceback, the missing module name, and the file that triggered the import before deciding whether to edit code or install a package.",
-    "AssertionError": "An assertion failed. Read the test file to understand expected behavior, then fix the implementation logic.",
+    "AssertionError": "An assertion failed. Read the failing test output, confirm the expected behavior, then fix the implementation logic without changing the API unnecessarily.",
     "TimeoutError": "The code timed out. Reconsider the algorithm complexity - look for an O(n log n) or better approach.",
-    "LogicError": "There is a logic error. Add debug print statements to trace variable values, analyze the traceback carefully, then fix the root cause.",
+    "LogicError": "There is a logic or workflow error. Read the first failure block carefully, then fix the root cause before making broad rewrites.",
+    "ToolError": "A tool call failed. Re-check tool arguments, relative paths, line ranges, and edit anchors before retrying. If an edit target was not found, read the file again and issue a more precise edit.",
 }
 
 
-def classify_error(stderr: str) -> str | None:
-    if not stderr.strip():
+def _looks_like_pytest_collection_failure(text: str) -> bool:
+    lower = text.lower()
+    return "error collecting" in lower or "collected 0 items" in lower
+
+
+def _looks_like_api_contract_mismatch(text: str) -> bool:
+    lower = text.lower()
+    return any(
+        pattern in lower
+        for pattern in (
+            "typeerror:",
+            "positional argument but",
+            "positional arguments but",
+            "required positional argument",
+            "unexpected keyword argument",
+            "got multiple values for argument",
+        )
+    )
+
+
+def classify_error(text: str) -> str | None:
+    if not text.strip():
         return None
-    if "SyntaxError" in stderr:
+    lower = text.lower()
+    if "syntaxerror" in lower or "indentationerror" in lower:
         return "SyntaxError"
-    if "ImportError" in stderr or "ModuleNotFoundError" in stderr:
+    if "importerror" in lower or "modulenotfounderror" in lower:
         return "ImportError"
-    if "AssertionError" in stderr:
+    if "assertionerror" in lower or " failed" in lower or "\nfailed" in lower:
         return "AssertionError"
-    if "TimeoutError" in stderr or "timed out" in stderr.lower():
+    if "timeouterror" in lower or "timeoutexpired" in lower or "timed out" in lower:
         return "TimeoutError"
-    if "Traceback" in stderr or "Error" in stderr:
+    if "old_text not found" in lower or "path escapes workspace" in lower:
+        return "ToolError"
+    if _looks_like_api_contract_mismatch(text):
+        return "LogicError"
+    if _looks_like_pytest_collection_failure(text):
+        return "LogicError"
+    if "traceback" in lower or "error" in lower or "failed" in lower:
         return "LogicError"
     return None
 
@@ -39,6 +67,46 @@ def extract_stderr(content: str) -> str:
     if "STDERR:" not in content:
         return ""
     return content.split("STDERR:", maxsplit=1)[-1].strip()
+
+
+def extract_stdout(content: str) -> str:
+    if "STDOUT:" not in content:
+        return ""
+    stdout_text = content.split("STDOUT:", maxsplit=1)[-1]
+    if "STDERR:" in stdout_text:
+        stdout_text = stdout_text.split("STDERR:", maxsplit=1)[0]
+    return stdout_text.strip()
+
+
+def extract_combined_failure_text(content: str) -> str:
+    stderr = extract_stderr(content)
+    stdout = extract_stdout(content)
+    parts = [part for part in (stderr, stdout) if part]
+    return "\n".join(parts)
+
+
+def extract_failure_excerpt(text: str, *, max_lines: int = 8) -> str:
+    lines = text.splitlines()
+    if not lines:
+        return ""
+
+    for index, line in enumerate(lines):
+        if line.startswith("E       ") or line.startswith(">       "):
+            start = max(0, index - 2)
+            end = min(len(lines), index + max_lines)
+            excerpt = "\n".join(lines[start:end]).strip()
+            if excerpt:
+                return excerpt
+
+    for index, line in enumerate(lines):
+        if "ERROR collecting" in line or line.strip().startswith("FAILED "):
+            end = min(len(lines), index + max_lines)
+            excerpt = "\n".join(lines[index:end]).strip()
+            if excerpt:
+                return excerpt
+
+    tail = [line for line in lines if line.strip()][-max_lines:]
+    return "\n".join(tail).strip()
 
 
 def extract_import_error_details(stderr: str) -> dict[str, str | None]:
@@ -114,6 +182,29 @@ def build_error_guidance(
     *,
     repeated: bool = False,
 ) -> str:
+    if _looks_like_pytest_collection_failure(stderr_text):
+        hint = (
+            "Pytest could not collect or run the tests. Read the first collection failure block "
+            "and fix syntax, import, or test-discovery issues before changing implementation logic. "
+            "If you created both implementation and tests, change one side at a time."
+        )
+        if repeated:
+            hint += " This same collection failure repeated. Re-read the exact failure location before editing again."
+        return hint
+    if _looks_like_api_contract_mismatch(stderr_text):
+        hint = (
+            "The failure looks like an API or function-signature mismatch. Read the failing call site "
+            "and the current implementation, choose one minimal public API, and keep it stable across retries. "
+            "Update only one side first unless the traceback proves both files are wrong."
+        )
+        if repeated:
+            hint += " This same API mismatch repeated. Stop rewriting both sides and fix the specific call signature."
+        return hint
     if error_type == "ImportError":
         return build_import_error_guidance(stderr_text, repeated=repeated)
-    return _ERROR_GUIDANCE.get(error_type, "")
+    hint = _ERROR_GUIDANCE.get(error_type, "")
+    if error_type == "AssertionError" and hint:
+        hint += " Avoid brittle whitespace-only assertions unless the task explicitly requires exact formatting. If you wrote both tests and code, prefer keeping one stable API and fixing the implementation first."
+    if repeated and hint and error_type != "ImportError":
+        hint += " This same failure repeated. Re-read the current file and failure output before trying another broad rewrite."
+    return hint

@@ -36,11 +36,15 @@ def run(task: str, model: str | None, no_memory: bool, trajectory_dir: str | Non
         no_memory=no_memory,
         trajectory_store=make_trajectory_store(trajectory_dir),
     )
-    result = agent.run(task)
-    click.echo(
-        f"\n[{'OK' if result.success else 'ERR'}] "
-        f"steps={result.steps} tools={','.join(result.tool_calls)}"
-    )
+    try:
+        result = agent.run(task)
+        click.echo(
+            f"\n[{'OK' if result.success else 'ERR'}] "
+            f"steps={result.steps} tools={','.join(result.tool_calls)}"
+        )
+    finally:
+        if hasattr(agent, "close"):
+            agent.close()
 
 
 cli.add_command(chat)

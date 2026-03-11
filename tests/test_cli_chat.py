@@ -1,5 +1,6 @@
 from io import StringIO
 
+import coder_agent.cli.main as main_module
 from click.testing import CliRunner
 from rich.console import Console
 
@@ -15,6 +16,7 @@ class FakeSession:
         self.sent: list[str] = []
         self.reset_calls = 0
         self.meta_turns = 0
+        self.close_calls = 0
 
     def send(self, text: str):
         self.sent.append(text)
@@ -47,13 +49,17 @@ class FakeSession:
             },
         )()
 
+    def close(self) -> None:
+        self.close_calls += 1
+
 
 class FakeAgent:
-    def __init__(self):
+    def __init__(self, *, memory=None):
         self.calls: list[str] = []
         self.reset_calls = 0
+        self.close_calls = 0
         self._model_cfg = type("Cfg", (), {"model": "fake-model"})()
-        self.memory = None
+        self.memory = memory
 
     def run(self, user_text: str):
         self.calls.append(user_text)
@@ -76,6 +82,9 @@ class FakeAgent:
 
     def reset(self) -> None:
         self.reset_calls += 1
+
+    def close(self) -> None:
+        self.close_calls += 1
 
 
 def test_public_facades_remain_importable():
@@ -116,6 +125,7 @@ def test_run_chat_repl_reuses_same_session_and_supports_commands():
     rendered = output.getvalue()
     assert fake_session.sent == ["first task", "second task"]
     assert fake_session.reset_calls == 1
+    assert fake_session.close_calls == 1
     assert "model=fake-model" in rendered
     assert "termination=model_stop" in rendered
 
@@ -132,3 +142,39 @@ def test_agent_session_reuses_same_agent_until_reset():
     assert agent.calls == ["one", "two", "three"]
     assert agent.reset_calls == 1
     assert session.session_metadata().turns == 1
+
+
+def test_agent_session_reset_preserves_memory_metadata():
+    agent = FakeAgent(memory=object())
+    session = AgentSession(agent)
+
+    session.send("one")
+    session.reset()
+
+    meta = session.session_metadata()
+
+    assert meta.memory_enabled is True
+    assert meta.turns == 0
+
+
+def test_agent_session_close_closes_agent():
+    agent = FakeAgent()
+    session = AgentSession(agent)
+
+    session.close()
+
+    assert agent.close_calls == 1
+
+
+def test_run_command_closes_agent(monkeypatch):
+    fake_agent = FakeAgent()
+    runner = CliRunner()
+
+    monkeypatch.setattr(main_module, "make_agent", lambda **kwargs: fake_agent)
+    monkeypatch.setattr(main_module, "make_trajectory_store", lambda _: None)
+
+    result = runner.invoke(cli, ["run", "demo task"])
+
+    assert result.exit_code == 0
+    assert fake_agent.calls == ["demo task"]
+    assert fake_agent.close_calls == 1

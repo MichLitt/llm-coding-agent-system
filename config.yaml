@@ -1,5 +1,5 @@
 model:
-  provider: minimax        # minimax / openai / anthropic / local
+  provider: minimax        # legacy/informational only in 0.4.0; runtime uses OpenAI-compatible API env vars
   name: MiniMax-M2.5
   temperature: 0.2
   max_tokens: 8192
@@ -9,8 +9,8 @@ agent:
   max_steps: 15
   max_retries: 3
   planning_mode: react
-  enable_memory: false
-  enable_checklist: false  # C5: Adaptive Checklist (Decomposer role)
+  enable_memory: false     # `C4` enables project memory for multi-step tasks
+  enable_checklist: false  # `C5` remains experimental/non-promoted in 0.4.0
 
 tools:
   terminal_timeout: 30

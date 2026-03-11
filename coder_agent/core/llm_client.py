@@ -1,5 +1,7 @@
 """LLM backend client using OpenAI-compatible API."""
 
+import asyncio
+import inspect
 import json
 from collections import defaultdict
 from json import JSONDecodeError
@@ -78,10 +80,25 @@ class LLMClient:
     """
 
     def __init__(self):
-        self._client = AsyncOpenAI(
-            api_key=cfg.model.api_key,
-            base_url=cfg.model.base_url,
+        self._api_key = cfg.model.api_key
+        self._base_url = cfg.model.base_url
+        self._client: AsyncOpenAI | Any | None = None
+        self._client_loop_id: int | None = None
+
+    def _build_client(self) -> AsyncOpenAI:
+        return AsyncOpenAI(
+            api_key=self._api_key,
+            base_url=self._base_url,
         )
+
+    def _client_for_current_loop(self) -> AsyncOpenAI | Any:
+        loop_id = id(asyncio.get_running_loop())
+        current_client = getattr(self, "_client", None)
+        current_loop_id = getattr(self, "_client_loop_id", None)
+        if current_client is None or current_loop_id != loop_id:
+            self._client = self._build_client()
+            self._client_loop_id = loop_id
+        return self._client
 
     async def chat(
         self,
@@ -110,7 +127,9 @@ class LLMClient:
         text_chunks: list[str] = []
         tc_accum: dict[int, dict[str, str]] = defaultdict(lambda: {"id": "", "name": "", "arguments": ""})
 
-        stream = await self._client.chat.completions.create(
+        client = self._client_for_current_loop()
+
+        stream = await client.chat.completions.create(
             model=model,
             messages=full_messages,
             tools=openai_tools,
@@ -160,3 +179,42 @@ class LLMClient:
         content = [{"type": "text", "text": full_text}] if full_text else []
 
         return {"content": content, "tool_uses": tool_uses, "parse_errors": parse_errors}
+
+    async def aclose(self) -> None:
+        if self._client is None:
+            return
+        client = self._client
+        self._client = None
+        self._client_loop_id = None
+        close = getattr(client, "close", None)
+        try:
+            if close is not None:
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
+            else:
+                inner_client = getattr(client, "_client", None)
+                if inner_client is not None:
+                    inner_close = getattr(inner_client, "aclose", None)
+                    if inner_close is not None:
+                        result = inner_close()
+                        if inspect.isawaitable(result):
+                            await result
+        except RuntimeError as exc:
+            if "Event loop is closed" not in str(exc):
+                raise
+            return
+
+    def close(self) -> None:
+        if self._client is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                asyncio.run(self.aclose())
+            except RuntimeError as exc:
+                if "Event loop is closed" not in str(exc):
+                    raise
+            return
+        loop.create_task(self.aclose())

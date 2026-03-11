@@ -246,20 +246,36 @@ class EvalRunner:
         completed_task_ids = {result.task_id for result in results}
         agent = self.agent_factory(agent_config or {})
 
-        for index, task in enumerate(tasks, start=1):
-            if task.task_id in completed_task_ids:
+        try:
+            for index, task in enumerate(tasks, start=1):
+                if task.task_id in completed_task_ids:
+                    if verbose:
+                        print(f"\n[{index}/{len(tasks)}] Task: {task.task_id} ({task.difficulty})")
+                        print("  SKIP from checkpoint")
+                    continue
+                if hasattr(agent, "reset"):
+                    agent.reset()
                 if verbose:
                     print(f"\n[{index}/{len(tasks)}] Task: {task.task_id} ({task.difficulty})")
-                    print("  SKIP from checkpoint")
-                continue
-            if hasattr(agent, "reset"):
-                agent.reset()
-            if verbose:
-                print(f"\n[{index}/{len(tasks)}] Task: {task.task_id} ({task.difficulty})")
-            result = self.run_task(task, agent, config_label=config_label)
-            results.append(result)
-            completed_task_ids.add(task.task_id)
-            self._append_checkpoint_result(config_label, result)
+                result = self.run_task(task, agent, config_label=config_label)
+                results.append(result)
+                completed_task_ids.add(task.task_id)
+                self._append_checkpoint_result(config_label, result)
+                self._write_results_json(config_label, results)
+                self._write_run_manifest(
+                    config_label,
+                    benchmark_name=benchmark_name,
+                    preset=preset,
+                    total_tasks=len(tasks),
+                    results=results,
+                    resume_enabled=resume,
+                    started_at=started_at,
+                    finished_at=None,
+                )
+                if verbose:
+                    status = "OK" if result.success else "ERR"
+                    print(f"  {status} checks={result.checks_passed}/{result.checks_total} steps={result.steps_used}")
+
             self._write_results_json(config_label, results)
             self._write_run_manifest(
                 config_label,
@@ -269,30 +285,18 @@ class EvalRunner:
                 results=results,
                 resume_enabled=resume,
                 started_at=started_at,
-                finished_at=None,
+                finished_at=time.time(),
             )
+
             if verbose:
-                status = "OK" if result.success else "ERR"
-                print(f"  {status} checks={result.checks_passed}/{result.checks_total} steps={result.steps_used}")
+                metrics = compute_metrics(results, config_label)
+                print(f"\n=== {config_label or 'results'} Summary ===")
+                print_metrics_table([metrics])
 
-        self._write_results_json(config_label, results)
-        self._write_run_manifest(
-            config_label,
-            benchmark_name=benchmark_name,
-            preset=preset,
-            total_tasks=len(tasks),
-            results=results,
-            resume_enabled=resume,
-            started_at=started_at,
-            finished_at=time.time(),
-        )
-
-        if verbose:
-            metrics = compute_metrics(results, config_label)
-            print(f"\n=== {config_label or 'results'} Summary ===")
-            print_metrics_table([metrics])
-
-        return results
+            return results
+        finally:
+            if hasattr(agent, "close"):
+                agent.close()
 
     def compare_configs(
         self,

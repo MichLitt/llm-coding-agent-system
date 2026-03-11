@@ -61,14 +61,17 @@ async def classify_one(traj: dict) -> LLMTaxonomyResult:
     )
 
     client = LLMClient()
-    result = await client.chat(
-        messages=[{"role": "user", "content": user_content}],
-        system=LLM_SYSTEM_PROMPT,
-        tools=[],
-        model=cfg.model.name,
-        max_tokens=1024,
-        temperature=0.0,
-    )
+    try:
+        result = await client.chat(
+            messages=[{"role": "user", "content": user_content}],
+            system=LLM_SYSTEM_PROMPT,
+            tools=[],
+            model=cfg.model.name,
+            max_tokens=1024,
+            temperature=0.0,
+        )
+    finally:
+        await client.aclose()
 
     raw = ""
     for block in result.get("content", []):

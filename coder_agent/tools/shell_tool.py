@@ -1,6 +1,7 @@
 """Shell execution tool with safety guardrails."""
 
 import asyncio
+import locale
 import os
 import signal
 import subprocess
@@ -11,6 +12,15 @@ from coder_agent.tools.base import Tool
 
 _WORKSPACE = cfg.agent.workspace
 BLOCKED_PATTERNS: list[str] = cfg.tools.blocked_commands
+
+
+def _decode_output(data: bytes) -> str:
+    for encoding in ("utf-8", locale.getpreferredencoding(False)):
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
 
 
 async def _terminate_process_tree(proc: asyncio.subprocess.Process) -> None:
@@ -66,4 +76,8 @@ class RunCommandTool(Tool):
         except asyncio.TimeoutError:
             await _terminate_process_tree(proc)
             raise RuntimeError("command timed out")
-        return f"Exit code: {proc.returncode}\nSTDOUT:\n{stdout.decode()}\nSTDERR:\n{stderr.decode()}"
+        return (
+            f"Exit code: {proc.returncode}\n"
+            f"STDOUT:\n{_decode_output(stdout)}\n"
+            f"STDERR:\n{_decode_output(stderr)}"
+        )

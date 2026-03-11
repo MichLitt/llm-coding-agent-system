@@ -1,5 +1,7 @@
 from types import MethodType
 
+import pytest
+
 from coder_agent.eval.metrics import EvalResult
 from coder_agent.eval.runner import EvalRunner, TaskSpec
 
@@ -8,9 +10,13 @@ class DummyAgent:
     def __init__(self, experiment_config=None):
         self.experiment_config = experiment_config or {}
         self.run_calls = []
+        self.close_calls = 0
 
     def reset(self) -> None:
         return None
+
+    def close(self) -> None:
+        self.close_calls += 1
 
     def run(
         self,
@@ -169,3 +175,51 @@ def test_run_task_routes_stop_gate_and_auto_complete_independently(tmp_path):
     assert no_gate_agent.run_calls[0]["verification_hook"] is not None
     assert no_gate_agent.run_calls[0]["enforce_stop_verification"] is False
     assert no_gate_agent.run_calls[0]["auto_complete_on_verification"] is True
+
+
+def test_run_suite_closes_agent_on_success(tmp_path):
+    agent = DummyAgent()
+    tasks = [TaskSpec(task_id="task_a", description="task_a")]
+    runner = EvalRunner(agent_factory=lambda _: agent, output_dir=tmp_path)
+
+    def fake_run_task(self, task, current_agent, config_label=""):
+        assert current_agent is agent
+        return _result(task.task_id, config_label)
+
+    runner.run_task = MethodType(fake_run_task, runner)
+    runner.run_suite(
+        tasks,
+        config_label="close_demo",
+        benchmark_name="custom",
+        preset="C4",
+        resume=False,
+        verbose=False,
+    )
+
+    assert agent.close_calls == 1
+
+
+def test_run_suite_closes_agent_on_exception(tmp_path):
+    agent = DummyAgent()
+    tasks = [TaskSpec(task_id=task_id, description=task_id) for task_id in ("task_a", "task_b")]
+    runner = EvalRunner(agent_factory=lambda _: agent, output_dir=tmp_path)
+
+    def interrupted_run_task(self, task, current_agent, config_label=""):
+        assert current_agent is agent
+        if task.task_id == "task_b":
+            raise KeyboardInterrupt("stop")
+        return _result(task.task_id, config_label)
+
+    runner.run_task = MethodType(interrupted_run_task, runner)
+
+    with pytest.raises(KeyboardInterrupt):
+        runner.run_suite(
+            tasks,
+            config_label="close_demo_interrupt",
+            benchmark_name="custom",
+            preset="C4",
+            resume=False,
+            verbose=False,
+        )
+
+    assert agent.close_calls == 1

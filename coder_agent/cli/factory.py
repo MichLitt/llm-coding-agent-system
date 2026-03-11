@@ -17,10 +17,17 @@ CONFIG_PRESETS: dict[str, dict] = {
     "C5": {"correction": True, "memory": True, "planning_mode": "react", "checklist": True},
     "C6": {"correction": True, "memory": False, "planning_mode": "react", "verification_gate": True},
 }
+ACTIVE_PRESETS: tuple[str, ...] = ("default", "C3", "C4", "C6")
+BENCHMARK_CANDIDATE_PRESETS: tuple[str, ...] = ("C3", "C4", "C6")
+EXPERIMENTAL_PRESETS: tuple[str, ...] = ("C5",)
 
 
 def resolve_agent_config(preset: str) -> dict:
     return dict(CONFIG_PRESETS.get(preset, {}))
+
+
+def invalid_preset_labels(labels: list[str]) -> list[str]:
+    return [label for label in labels if label not in CONFIG_PRESETS]
 
 
 def make_agent(

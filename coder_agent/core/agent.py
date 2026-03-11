@@ -54,6 +54,7 @@ class Agent:
         self.client = client
         self.memory = memory
         self.trajectory_store = trajectory_store
+        self._closed = False
 
         if system is not None:
             self.system = system
@@ -100,6 +101,15 @@ class Agent:
             from coder_agent.core.decomposer import Decomposer
 
             self.decomposer = Decomposer()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        if self.client is not None and hasattr(self.client, "close"):
+            self.client.close()
+        if self.memory is not None and hasattr(self.memory, "close"):
+            self.memory.close()
+        self._closed = True
 
     def _make_result(
         self,
@@ -174,6 +184,30 @@ class Agent:
             execute_tools_fn=execute_tools,
         )
 
+    async def _run_with_cleanup(
+        self,
+        user_input: str,
+        task_id: str = "",
+        finalize_trajectory: bool = True,
+        verification_hook: VerificationHook | None = None,
+        max_verification_attempts: int = 2,
+        enforce_stop_verification: bool = True,
+        auto_complete_on_verification: bool = False,
+    ) -> TurnResult:
+        try:
+            return await self._loop(
+                user_input,
+                task_id=task_id,
+                finalize_trajectory=finalize_trajectory,
+                verification_hook=verification_hook,
+                max_verification_attempts=max_verification_attempts,
+                enforce_stop_verification=enforce_stop_verification,
+                auto_complete_on_verification=auto_complete_on_verification,
+            )
+        finally:
+            if self.client is not None and hasattr(self.client, "aclose"):
+                await self.client.aclose()
+
     def run(
         self,
         user_input: str,
@@ -185,7 +219,7 @@ class Agent:
         auto_complete_on_verification: bool = False,
     ) -> TurnResult:
         return asyncio.run(
-            self._loop(
+            self._run_with_cleanup(
                 user_input,
                 task_id=task_id,
                 finalize_trajectory=finalize_trajectory,

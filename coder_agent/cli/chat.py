@@ -66,34 +66,38 @@ def run_chat_repl(
     interactive = hasattr(stdin, "isatty") and stdin.isatty()
     prompt = PromptSession("> ", history=InMemoryHistory()) if interactive else None
 
-    while True:
-        try:
-            if prompt is not None:
-                text = prompt.prompt().strip()
-            else:
-                line = stdin.readline()
-                if not line:
-                    break
-                text = line.strip()
-        except (EOFError, KeyboardInterrupt):
-            console.print()
-            break
+    try:
+        while True:
+            try:
+                if prompt is not None:
+                    text = prompt.prompt().strip()
+                else:
+                    line = stdin.readline()
+                    if not line:
+                        break
+                    text = line.strip()
+            except (EOFError, KeyboardInterrupt):
+                console.print()
+                break
 
-        if not text:
-            continue
+            if not text:
+                continue
 
-        command_result = _handle_command(console, agent_session, text)
-        if command_result is False:
-            break
-        if command_result is True:
-            continue
+            command_result = _handle_command(console, agent_session, text)
+            if command_result is False:
+                break
+            if command_result is True:
+                continue
 
-        try:
-            result = agent_session.send(text)
-        except Exception as exc:
-            console.print(f"[red]Agent error:[/red] {exc}")
-            continue
-        _print_summary(console, result)
+            try:
+                result = agent_session.send(text)
+            except Exception as exc:
+                console.print(f"[red]Agent error:[/red] {exc}")
+                continue
+            _print_summary(console, result)
+    finally:
+        if hasattr(agent_session, "close"):
+            agent_session.close()
 
 
 @click.command()

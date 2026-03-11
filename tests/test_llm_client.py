@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import asyncio
 
 import pytest
 
@@ -74,6 +75,7 @@ async def test_llm_client_chat_returns_parse_errors_for_invalid_tool_arguments()
             completions=SimpleNamespace(create=fake_create)
         )
     )
+    client._client_loop_id = id(asyncio.get_running_loop())
 
     response = await client.chat(
         messages=[],
@@ -91,3 +93,36 @@ async def test_llm_client_chat_returns_parse_errors_for_invalid_tool_arguments()
     assert response["tool_uses"] == []
     assert response["parse_errors"]
     assert "malformed tool arguments" in response["parse_errors"][0]
+
+
+class _FakeAsyncClient:
+    def __init__(self):
+        self.close_calls = 0
+
+    async def close(self):
+        self.close_calls += 1
+
+
+def test_llm_client_close_is_idempotent():
+    client = LLMClient.__new__(LLMClient)
+    fake = _FakeAsyncClient()
+    client._client = fake
+    client._client_loop_id = 1
+
+    client.close()
+    client.close()
+
+    assert fake.close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_llm_client_aclose_is_idempotent():
+    client = LLMClient.__new__(LLMClient)
+    fake = _FakeAsyncClient()
+    client._client = fake
+    client._client_loop_id = 1
+
+    await client.aclose()
+    await client.aclose()
+
+    assert fake.close_calls == 1
