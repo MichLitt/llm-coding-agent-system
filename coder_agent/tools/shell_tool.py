@@ -36,7 +36,10 @@ async def _terminate_process_tree(proc: asyncio.subprocess.Process) -> None:
             timeout=5,
         )
     else:
-        os.killpg(proc.pid, signal.SIGKILL)
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
 
     try:
         await asyncio.wait_for(proc.wait(), timeout=5)

@@ -3,10 +3,12 @@
 import asyncio
 import inspect
 import json
+import random
 from collections import defaultdict
 from json import JSONDecodeError
 from typing import Any
 
+import openai
 from openai import AsyncOpenAI
 
 from coder_agent.config import cfg
@@ -129,14 +131,25 @@ class LLMClient:
 
         client = self._client_for_current_loop()
 
-        stream = await client.chat.completions.create(
-            model=model,
-            messages=full_messages,
-            tools=openai_tools,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            stream=True,
-        )
+        _MAX_RETRIES = 3
+        _RETRY_DELAYS = [1.0, 2.0, 4.0]
+        for attempt in range(_MAX_RETRIES + 1):
+            if attempt > 0:
+                delay = _RETRY_DELAYS[attempt - 1] + random.uniform(0.0, 0.5)
+                await asyncio.sleep(delay)
+            try:
+                stream = await client.chat.completions.create(
+                    model=model,
+                    messages=full_messages,
+                    tools=openai_tools,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    stream=True,
+                )
+                break
+            except (openai.APIConnectionError, openai.APITimeoutError) as exc:
+                if attempt == _MAX_RETRIES:
+                    raise
 
         async for chunk in stream:
             delta = chunk.choices[0].delta if chunk.choices else None

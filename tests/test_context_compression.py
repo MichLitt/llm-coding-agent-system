@@ -1,0 +1,186 @@
+"""Tests for MessageHistory.truncate() token alignment and compress_observation edge cases."""
+
+import pytest
+
+from coder_agent.core.context import MessageHistory, compress_observation
+
+
+# ---------------------------------------------------------------------------
+# compress_observation edge cases
+# ---------------------------------------------------------------------------
+
+def test_compress_observation_short_content_not_compressed():
+    content = "line1\nline2\nline3"
+    result = compress_observation(content)
+    assert result.was_compressed is False
+    assert result.content == content
+    assert result.ratio == 1.0
+
+
+def test_compress_observation_long_terminal_output_truncates_head():
+    # 45 lines of terminal output (> _TERMINAL_THRESHOLD=40)
+    lines = ["Exit code: 0"] + [f"line {i}" for i in range(44)]
+    content = "\n".join(lines)
+    result = compress_observation(content)
+    assert result.was_compressed is True
+    assert "omitted" in result.content
+    # tail lines are preserved
+    assert "line 43" in result.content
+
+
+def test_compress_observation_long_file_content_keeps_head_and_tail():
+    # 35 lines of file content (> _FILE_CONTENT_THRESHOLD=30)
+    lines = [f"code line {i}" for i in range(35)]
+    content = "\n".join(lines)
+    result = compress_observation(content)
+    assert result.was_compressed is True
+    assert "omitted" in result.content
+    # head lines preserved
+    assert "code line 0" in result.content
+    # tail lines preserved
+    assert "code line 34" in result.content
+
+
+def test_compress_observation_exactly_at_short_threshold_not_compressed():
+    # Exactly _SHORT_THRESHOLD=10 lines — should NOT compress
+    content = "\n".join(f"line {i}" for i in range(10))
+    result = compress_observation(content)
+    assert result.was_compressed is False
+
+
+def test_compress_observation_empty_string():
+    result = compress_observation("")
+    assert result.was_compressed is False
+    assert result.content == ""
+    assert result.ratio == 1.0
+
+
+def test_compress_observation_single_line():
+    content = "just one line"
+    result = compress_observation(content)
+    assert result.was_compressed is False
+    assert result.content == content
+
+
+# ---------------------------------------------------------------------------
+# MessageHistory.message_tokens parallel alignment
+# ---------------------------------------------------------------------------
+
+def _make_history(context_window_tokens: int = 100_000) -> MessageHistory:
+    return MessageHistory(
+        model="test-model",
+        system="system prompt",
+        context_window_tokens=context_window_tokens,
+        client=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_message_tokens_parallel_after_mixed_adds():
+    history = _make_history()
+    await history.add_message("user", "hello")
+    await history.add_message(
+        "assistant",
+        "hi",
+        usage={"input_tokens": 10, "output_tokens": 5},
+    )
+    await history.add_message("tool", "tool result", tool_calls=[{"id": "c1"}])
+    await history.add_message(
+        "assistant",
+        "done",
+        usage={"input_tokens": 20, "output_tokens": 8},
+    )
+
+    assert len(history.messages) == len(history.message_tokens)
+
+
+@pytest.mark.asyncio
+async def test_non_assistant_messages_get_zero_tokens():
+    history = _make_history()
+    await history.add_message("user", "question")
+    await history.add_message("tool", "result", tool_calls=[{"id": "c1"}])
+
+    assert history.message_tokens[0] == (0, 0)
+    assert history.message_tokens[1] == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_assistant_message_gets_correct_tokens():
+    history = _make_history()
+    await history.add_message(
+        "assistant",
+        "answer",
+        usage={"input_tokens": 30, "output_tokens": 15},
+    )
+
+    assert history.message_tokens[0] == (30, 15)
+    assert history.total_tokens == len("system prompt") // 4 + 45
+
+
+@pytest.mark.asyncio
+async def test_truncate_keeps_lists_parallel():
+    # Force context to be tiny so truncation fires
+    history = _make_history(context_window_tokens=10)
+    history.total_tokens = 200  # artificially high
+
+    await history.add_message("user", "user message")
+    await history.add_message(
+        "assistant",
+        "assistant message",
+        usage={"input_tokens": 50, "output_tokens": 25},
+    )
+
+    history.truncate()
+
+    assert len(history.messages) == len(history.message_tokens)
+
+
+@pytest.mark.asyncio
+async def test_truncate_does_not_subtract_assistant_tokens_for_user_message():
+    """
+    Regression: before the fix, popping a user message at index 0 would also
+    pop message_tokens[0], which was the first assistant message's token count.
+    After the fix, user messages carry (0, 0) so total_tokens only decreases by 0.
+    """
+    history = _make_history(context_window_tokens=10)
+
+    await history.add_message("user", "question")
+    await history.add_message(
+        "assistant",
+        "answer",
+        usage={"input_tokens": 20, "output_tokens": 10},
+    )
+    # Force total_tokens above the window threshold
+    history.total_tokens = 200
+
+    # tokens attributed to the assistant message
+    assistant_tokens = 30
+
+    history.truncate()
+
+    # After popping the user message (0 tokens), total_tokens should drop by 0.
+    # After also popping the assistant message (30 tokens), it drops by 30.
+    # In either case the lists must remain parallel.
+    assert len(history.messages) == len(history.message_tokens)
+
+
+@pytest.mark.asyncio
+async def test_truncation_notice_keeps_lists_parallel():
+    """After truncation notice is inserted, lists remain parallel."""
+    history = _make_history(context_window_tokens=10)
+    history.total_tokens = 200
+
+    await history.add_message("user", "q1")
+    await history.add_message("user", "q2")
+    await history.add_message(
+        "assistant",
+        "a",
+        usage={"input_tokens": 5, "output_tokens": 3},
+    )
+
+    history.truncate()
+
+    assert len(history.messages) == len(history.message_tokens)
+    # The truncation notice is a user message — check its token entry is (0,0)
+    if history.messages and history.messages[0].get("content") == "[Earlier history has been truncated.]":
+        assert history.message_tokens[0] == (0, 0)

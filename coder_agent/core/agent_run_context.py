@@ -6,6 +6,8 @@ from coder_agent.config import cfg
 from coder_agent.core.agent_types import TurnResult, VerificationHook, VerificationResult
 from coder_agent.memory.trajectory import Step
 
+_OBSERVATION_MAX_CHARS = 500
+
 
 def record_trajectory_step(
     agent: Any,
@@ -26,7 +28,11 @@ def record_trajectory_step(
             step_id=state.steps,
             thought=thought,
             action=action,
-            observation=observation[:500],
+            observation=(
+                observation[:_OBSERVATION_MAX_CHARS] + " ...[truncated]"
+                if len(observation) > _OBSERVATION_MAX_CHARS
+                else observation
+            ),
             timestamp=timestamp,
             error_type=error_type,
             is_retry=is_retry,
