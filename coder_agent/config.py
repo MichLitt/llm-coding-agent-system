@@ -115,7 +115,18 @@ class Config:
     eval: EvalConfig = field(default_factory=EvalConfig)
 
 
+def validate_config(config: "Config") -> None:
+    """Fail fast with a clear message for obviously invalid config values."""
+    if config.agent.max_steps < 1:
+        raise ValueError(f"agent.max_steps must be >= 1, got {config.agent.max_steps}")
+    if config.agent.max_retries < 0:
+        raise ValueError(f"agent.max_retries must be >= 0, got {config.agent.max_retries}")
+    if config.tools.terminal_timeout < 1:
+        raise ValueError(f"tools.terminal_timeout must be >= 1, got {config.tools.terminal_timeout}")
+
+
 cfg = Config()
+validate_config(cfg)
 
 # Backward-compatible aliases.
 MODEL = cfg.model.name

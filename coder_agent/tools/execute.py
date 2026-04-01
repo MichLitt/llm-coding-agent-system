@@ -11,9 +11,18 @@ def _is_tool_error_content(content: Any) -> bool:
 
 
 async def _execute_single(call: Any, tool_dict: dict[str, Tool]) -> dict[str, Any]:
-    call_id = call["id"] if isinstance(call, dict) else call.id
-    call_name = call["name"] if isinstance(call, dict) else call.name
-    call_input = call["input"] if isinstance(call, dict) else call.input
+    try:
+        call_id = call["id"] if isinstance(call, dict) else call.id
+        call_name = call["name"] if isinstance(call, dict) else call.name
+        call_input = call["input"] if isinstance(call, dict) else call.input
+    except (KeyError, AttributeError) as e:
+        return {
+            "type": "tool_result",
+            "tool_use_id": "",
+            "content": f"Error: malformed tool call ({e})",
+            "is_error": True,
+            "error_kind": "tool_error",
+        }
     response = {"type": "tool_result", "tool_use_id": call_id}
     try:
         result = await tool_dict[call_name].execute(**call_input)

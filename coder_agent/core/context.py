@@ -110,6 +110,8 @@ class MessageHistory:
             output_tokens = usage.get("output_tokens", 0)
             self.message_tokens.append((input_tokens, output_tokens))
             self.total_tokens += input_tokens + output_tokens
+        else:
+            self.message_tokens.append((0, 0))
 
     def truncate(self) -> None:
         compression_strategy = cfg.context.compression_strategy
@@ -128,14 +130,14 @@ class MessageHistory:
 
             if not compressed:
                 self.messages.pop(0)
-                if self.message_tokens:
-                    input_tokens, output_tokens = self.message_tokens.pop(0)
-                    self.total_tokens -= input_tokens + output_tokens
+                input_tokens, output_tokens = self.message_tokens.pop(0)
+                self.total_tokens -= input_tokens + output_tokens
 
         if self.messages:
             notice = {"role": "user", "content": "[Earlier history has been truncated.]"}
             if self.messages[0] != notice:
                 self.messages.insert(0, notice)
+                self.message_tokens.insert(0, (0, 0))
 
     def format_for_api(self) -> list[dict[str, Any]]:
         return self.messages.copy()

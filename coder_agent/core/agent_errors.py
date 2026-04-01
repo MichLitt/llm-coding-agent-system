@@ -51,7 +51,12 @@ def classify_error(text: str) -> str | None:
         return "LogicError"
     if _looks_like_pytest_collection_failure(text):
         return "LogicError"
-    if "traceback" in lower or "error" in lower or "failed" in lower:
+    error_signals = sum([
+        "traceback" in lower,
+        "error:" in lower,
+        " failed" in lower or "\nfailed" in lower,
+    ])
+    if "traceback" in lower or error_signals >= 2:
         return "LogicError"
     return None
 

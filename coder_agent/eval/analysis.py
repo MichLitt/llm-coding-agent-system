@@ -14,8 +14,11 @@ class TrajectoryAnalyzer:
 
     def __init__(self, trajectory_dir: Path | None = None):
         self.store = TrajectoryStore(trajectory_dir or cfg.eval.trajectory_dir)
+        self._cache: dict[str, list[dict]] = {}
 
     def _load(self, experiment_id: str) -> list[dict]:
+        if experiment_id in self._cache:
+            return self._cache[experiment_id]
         trajs = self.store.load(experiment_id)
         latest_by_key: dict[str, dict] = {}
         ordered_keys: list[str] = []
@@ -24,7 +27,9 @@ class TrajectoryAnalyzer:
             if task_id not in latest_by_key:
                 ordered_keys.append(task_id)
             latest_by_key[task_id] = traj
-        return [latest_by_key[key] for key in ordered_keys]
+        result = [latest_by_key[key] for key in ordered_keys]
+        self._cache[experiment_id] = result
+        return result
 
     def compute_statistics(self, experiment_id: str) -> TrajectoryStats:
         return compute_statistics(experiment_id, self._load(experiment_id))
