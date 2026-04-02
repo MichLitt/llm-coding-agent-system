@@ -1,6 +1,7 @@
 model:
-  provider: minimax        # legacy/informational only in 0.4.0; runtime uses OpenAI-compatible API env vars
-  name: MiniMax-M2.5
+  provider: minimax
+  name: MiniMax-M2.7
+  api_format: anthropic    # "openai" for M2.5, "anthropic" for M2.7
   temperature: 0.2
   max_tokens: 8192
   seed: 42

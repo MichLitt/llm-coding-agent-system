@@ -39,16 +39,25 @@ _Y = _load_yaml()
 
 @dataclass
 class ModelConfig:
-    # Informational only for now; runtime uses an OpenAI-compatible backend.
     provider: str = _Y.get("model", {}).get("provider", "minimax")
-    name: str = os.environ.get("CODER_MODEL", _Y.get("model", {}).get("name", "MiniMax-M2.5"))
+    name: str = os.environ.get("CODER_MODEL", _Y.get("model", {}).get("name", "MiniMax-M2.7"))
+    # api_format selects the SDK backend: "openai" (M2.5) or "anthropic" (M2.7)
+    api_format: str = os.environ.get(
+        "CODER_API_FORMAT", _Y.get("model", {}).get("api_format", "anthropic")
+    )
     temperature: float = float(_Y.get("model", {}).get("temperature", 0.2))
     max_tokens: int = int(os.environ.get("CODER_MAX_TOKENS", _Y.get("model", {}).get("max_tokens", 8192)))
     seed: int = int(_Y.get("model", {}).get("seed", 42))
 
-    # LLM API credentials come from .env only.
+    # OpenAI-format credentials (M2.5 / other OpenAI-compatible endpoints)
     api_key: str = field(default_factory=lambda: os.environ.get("LLM_API_KEY", ""))
     base_url: str = field(default_factory=lambda: os.environ.get("LLM_BASE_URL", ""))
+
+    # Anthropic-format credentials (M2.7 via MiniMax Token Plan)
+    anthropic_api_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
+    anthropic_base_url: str = field(default_factory=lambda: os.environ.get(
+        "ANTHROPIC_BASE_URL", "https://api.minimax.io/anthropic"
+    ))
 
 
 @dataclass
@@ -123,6 +132,10 @@ def validate_config(config: "Config") -> None:
         raise ValueError(f"agent.max_retries must be >= 0, got {config.agent.max_retries}")
     if config.tools.terminal_timeout < 1:
         raise ValueError(f"tools.terminal_timeout must be >= 1, got {config.tools.terminal_timeout}")
+    if config.model.api_format not in ("openai", "anthropic"):
+        raise ValueError(
+            f"model.api_format must be 'openai' or 'anthropic', got {config.model.api_format!r}"
+        )
 
 
 cfg = Config()
