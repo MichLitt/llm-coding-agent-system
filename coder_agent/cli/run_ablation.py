@@ -121,10 +121,16 @@ def run_ablation_command(
     )
 
     marginal_deltas = compute_feature_deltas(report, mode="marginal")
-    cumulative_deltas = compute_feature_deltas(report, mode="cumulative")
+    try:
+        cumulative_deltas = compute_feature_deltas(report, mode="cumulative")
+    except KeyError:
+        cumulative_deltas = []
+        click.echo("(Cumulative deltas skipped: C1 baseline not in selected presets)")
 
-    print_delta_table(marginal_deltas, title="=== Marginal Deltas (each config vs direct predecessor) ===")
-    print_delta_table(cumulative_deltas, title="=== Cumulative Deltas (each config vs C1 baseline) ===")
+    if marginal_deltas:
+        print_delta_table(marginal_deltas, title="=== Marginal Deltas (each config vs direct predecessor) ===")
+    if cumulative_deltas:
+        print_delta_table(cumulative_deltas, title="=== Cumulative Deltas (each config vs C1 baseline) ===")
 
     report_path = write_ablation_report(
         marginal_deltas,

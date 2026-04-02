@@ -21,7 +21,7 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 _ROOT = Path(__file__).parent.parent
 
@@ -54,9 +54,11 @@ class ModelConfig:
     base_url: str = field(default_factory=lambda: os.environ.get("LLM_BASE_URL", ""))
 
     # Anthropic-format credentials (M2.7 via MiniMax Token Plan)
+    # Use MINIMAX_ANTHROPIC_BASE_URL to avoid collision with system ANTHROPIC_BASE_URL
+    # (e.g. set by Claude desktop app to https://api.anthropic.com)
     anthropic_api_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
     anthropic_base_url: str = field(default_factory=lambda: os.environ.get(
-        "ANTHROPIC_BASE_URL", "https://api.minimax.io/anthropic"
+        "MINIMAX_ANTHROPIC_BASE_URL", "https://api.minimax.io/anthropic"
     ))
 
 
