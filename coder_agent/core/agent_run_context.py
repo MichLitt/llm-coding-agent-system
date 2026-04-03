@@ -94,8 +94,6 @@ def finalize_turn(
         termination_reason=termination_reason,
         error_details=error_details or [],
     )
-    if finalize_trajectory and agent.memory and state.project_id:
-        agent.memory.record_task(state.project_id, user_input, result)
     return result
 
 
