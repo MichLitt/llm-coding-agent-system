@@ -26,6 +26,7 @@ from coder_agent.eval.eval_verification import (
     run_check,
     run_custom_checks,
     run_humaneval_check,
+    run_mbpp_check,
     verify_custom,
     verify_humaneval,
 )
@@ -136,7 +137,7 @@ class EvalRunner:
                 finalize_trajectory=False,
                 verification_hook=verification_hook,
                 max_verification_attempts=task.verification_contract.get("max_attempts", 2),
-                enforce_stop_verification=gate_enabled,
+                enforce_stop_verification=(verification_hook is not None),
                 auto_complete_on_verification=verification_hook is not None,
             )
         except Exception as exc:
@@ -166,6 +167,10 @@ class EvalRunner:
         error_types: list[str] = []
         if task.metadata.get("benchmark") == "humaneval":
             checks_passed, error_message = self._run_humaneval_check(task, workspace)
+            if error_message:
+                error_types.append(error_message)
+        elif task.metadata.get("benchmark") == "mbpp":
+            checks_passed, error_message = run_mbpp_check(task, workspace)
             if error_message:
                 error_types.append(error_message)
         else:

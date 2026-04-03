@@ -149,10 +149,18 @@ def build_import_error_guidance(stderr_text: str, *, repeated: bool = False) -> 
             f"**/{module_path}/__init__.py",
         ]
         for pattern in candidate_patterns:
-            local_candidates.extend(
-                path.relative_to(workspace).as_posix()
-                for path in workspace.glob(pattern)
-            )
+            try:
+                local_candidates.extend(
+                    path.relative_to(workspace).as_posix()
+                    for path in workspace.glob(pattern)
+                )
+            except (NotImplementedError, ValueError):
+                # Python 3.12+: Path.glob() raises NotImplementedError for
+                # absolute-looking patterns.  This happens when module_name
+                # starts with "." (relative import), e.g. ".service"
+                # → module_path "/service" → pattern "/service.py".
+                # Skip these patterns gracefully instead of crashing the loop.
+                continue
 
     if local_candidates:
         hint = (

@@ -341,3 +341,494 @@
     - cmd: "python -m pytest test_async_jobs.py -v"
       expect_exit: 0
   max_steps: 20
+
+# =============================================================================
+# MEDIUM EXPANSION (v0.4.3) — 10 new SE-style tasks
+# =============================================================================
+
+- name: debug_threading_race
+  task_id: custom_medium_006
+  difficulty: medium
+  description: >
+    The file buggy_thread_counter.py contains a SharedCounter class used from
+    multiple threads. It has a race condition: the increment operation is not
+    atomic, causing lost updates under concurrent access.
+
+    File provided: buggy_thread_counter.py
+    Tests provided: test_thread_counter.py (do NOT modify)
+
+    Fix the race condition in buggy_thread_counter.py so all tests pass.
+    Hint: the increment operation reads and writes self.value without a lock.
+  setup_files:
+    - buggy_thread_counter.py
+    - test_thread_counter.py
+  verification:
+    - cmd: "python -m pytest test_thread_counter.py -q --tb=short"
+      expect_exit: 0
+  max_steps: 10
+
+- name: add_context_manager_support
+  task_id: custom_medium_007
+  difficulty: medium
+  description: >
+    The file db_connection.py contains a DBConnection class. It supports
+    open() and close() but cannot be used with the 'with' statement.
+
+    Files provided: db_connection.py, test_db_connection.py (do NOT modify test file)
+
+    Add __enter__ and __exit__ methods so DBConnection works as a context manager:
+    - __enter__: opens the connection and returns self
+    - __exit__: commits on success, rolls back on exception, always closes the connection
+
+    All tests in test_db_connection.py must pass.
+  setup_files:
+    - db_connection.py
+    - test_db_connection.py
+  verification:
+    - cmd: "python -m pytest test_db_connection.py -q --tb=short"
+      expect_exit: 0
+  max_steps: 10
+
+- name: parse_structured_logs
+  task_id: custom_medium_008
+  difficulty: medium
+  description: >
+    Create log_parser.py that parses a JSONL log file (one JSON object per line)
+    into structured dataclasses, gracefully skipping malformed lines.
+
+    Files provided: sample_logs.jsonl (30 lines, 3 malformed), test_log_parser.py (do NOT modify)
+
+    Requirements:
+    - LogEntry dataclass with fields: timestamp, level, service, message
+    - parse_log_file(path) -> list[LogEntry]: parse file, skip invalid JSON lines
+    - get_errors(entries) -> list[LogEntry]: return entries with level ERROR or CRITICAL
+    - get_by_service(entries, service) -> list[LogEntry]: filter by service name
+
+    All tests in test_log_parser.py must pass.
+  setup_files:
+    - sample_logs.jsonl
+    - test_log_parser.py
+  verification:
+    - cmd: "python -m pytest test_log_parser.py -q --tb=short"
+      expect_exit: 0
+  max_steps: 12
+
+- name: add_error_handling
+  task_id: custom_medium_009
+  difficulty: medium
+  description: >
+    The file api_client_stub.py contains an APIClient HTTP client with NO error handling.
+    It will crash on any network error, HTTP error, or timeout.
+
+    Files provided: api_client_stub.py, test_api_client.py (do NOT modify test file)
+
+    Add proper error handling to APIClient:
+    - Catch urllib.error.HTTPError and raise APIError with the status code
+    - Catch urllib.error.URLError and raise APIError (no status code)
+    - Retry up to MAX_RETRIES times on 5xx status codes
+    - Pass TIMEOUT to urllib.request.urlopen
+
+    The APIError class is already defined in the stub. All tests must pass.
+  setup_files:
+    - api_client_stub.py
+    - test_api_client.py
+  verification:
+    - cmd: "python -m pytest test_api_client.py -q --tb=short"
+      expect_exit: 0
+  max_steps: 12
+
+- name: fix_async_coroutine_bugs
+  task_id: custom_medium_010
+  difficulty: medium
+  description: >
+    The file buggy_downloader.py contains an AsyncDownloader class with 3 async/await bugs:
+    1. _fetch_one() acquires the semaphore but never releases it (memory/deadlock issue)
+    2. _run() uses a sequential loop instead of asyncio.gather for concurrency
+    3. fetch() is not declared async (minor)
+
+    Files provided: buggy_downloader.py, test_downloader.py (do NOT modify test file)
+
+    Fix all three bugs so that:
+    - Downloads run concurrently (5 slow fetches complete in ~0.1s, not ~0.5s)
+    - The semaphore is properly acquired and released (no deadlock on second batch)
+
+    All tests in test_downloader.py must pass.
+  setup_files:
+    - buggy_downloader.py
+    - test_downloader.py
+  verification:
+    - cmd: "python -m pytest test_downloader.py -q --tb=short"
+      expect_exit: 0
+  max_steps: 12
+
+- name: write_unit_tests_for_module
+  task_id: custom_medium_011
+  difficulty: medium
+  description: >
+    The file invoice.py contains an Invoice class with LineItem, discount/tax logic,
+    overdue detection, and formatting. It has no tests.
+
+    File provided: invoice.py (do NOT modify)
+
+    Write a test suite in test_invoice.py covering at least 10 test cases, including:
+    - Basic invoice creation and line item addition
+    - Subtotal, discount, tax, and total calculations
+    - Edge cases: zero items, 100% discount, invalid inputs (negative quantity, etc.)
+    - is_overdue() with various dates
+    - mark_paid() and its effect on is_overdue()
+
+    Run: python -m pytest test_invoice.py -q --tb=short (must pass with 0 failures)
+  setup_files:
+    - invoice.py
+  verification:
+    - cmd: "python -m pytest test_invoice.py -q --tb=short"
+      expect_exit: 0
+    - cmd: "python -m pytest test_invoice.py --co -q 2>&1 | grep 'test session starts' -A 100 | grep -c 'test_'"
+      expect_exit: 0
+  max_steps: 14
+
+- name: add_type_annotations_complex
+  task_id: custom_medium_012
+  difficulty: medium
+  description: >
+    The file untyped_utils.py contains utility functions with no type annotations.
+    Add complete PEP 484 type annotations to all functions so that mypy --strict passes.
+
+    File provided: untyped_utils.py
+
+    Requirements:
+    - Add type annotations to all function parameters and return types
+    - Use appropriate types from typing (Optional, Union, Any, Callable, etc.)
+    - The module must still be importable and all functions must work correctly
+    - Run: python -m mypy untyped_utils.py --strict --ignore-missing-imports (exit 0)
+
+    Do NOT change the function logic or signatures.
+  setup_files:
+    - untyped_utils.py
+  verification:
+    - cmd: "python -m mypy untyped_utils.py --strict --ignore-missing-imports"
+      expect_exit: 0
+    - cmd: "python -c \"import untyped_utils; print('import ok')\""
+      expect_exit: 0
+  max_steps: 12
+
+- name: implement_missing_methods
+  task_id: custom_medium_013
+  difficulty: medium
+  description: >
+    The file partial_queue.py contains a BoundedQueue class skeleton with TODO stubs.
+    The queue is a FIFO data structure with a configurable maximum capacity.
+
+    Files provided: partial_queue.py, test_queue_impl.py (do NOT modify test file)
+
+    Implement all methods marked TODO:
+    - enqueue(item): add to back, raise QueueFullError if at capacity
+    - dequeue(): remove from front, raise QueueEmptyError if empty
+    - peek(): view front without removing, raise QueueEmptyError if empty
+    - is_empty(), is_full(), size(), clear(), __len__()
+
+    QueueFullError and QueueEmptyError are already defined. All tests must pass.
+  setup_files:
+    - partial_queue.py
+    - test_queue_impl.py
+  verification:
+    - cmd: "python -m pytest test_queue_impl.py -q --tb=short"
+      expect_exit: 0
+  max_steps: 12
+
+- name: fix_circular_imports
+  task_id: custom_medium_014
+  difficulty: medium
+  description: >
+    The files circular_models.py and circular_utils.py have a circular import:
+    circular_models imports format_name from circular_utils,
+    circular_utils imports User from circular_models.
+    This causes ImportError when either module is loaded.
+
+    Files provided: circular_models.py, circular_utils.py, test_circular_fix.py (do NOT modify test file)
+
+    Fix the circular dependency so both modules can be imported without error.
+    Preserve all existing functionality:
+    - User.display_name() returns "Last, First"
+    - format_name(), summarize_user(), format_price() still work
+    - Product.label() still works
+
+    Common approaches: TYPE_CHECKING guard, forward references, or restructuring.
+    All tests in test_circular_fix.py must pass.
+  setup_files:
+    - circular_models.py
+    - circular_utils.py
+    - test_circular_fix.py
+  verification:
+    - cmd: "python -m pytest test_circular_fix.py -q --tb=short"
+      expect_exit: 0
+    - cmd: "python -c \"import circular_models; import circular_utils; print('ok')\""
+      expect_exit: 0
+  max_steps: 12
+
+- name: refactor_callback_to_coroutine
+  task_id: custom_medium_015
+  difficulty: medium
+  description: >
+    The file sync_fetcher.py contains DataFetcher, a callback-based data fetcher
+    using threads. Refactor it to produce AsyncDataFetcher using async/await.
+
+    Files provided: sync_fetcher.py, test_async_fetcher.py (do NOT modify test file)
+
+    Requirements for AsyncDataFetcher (add it to sync_fetcher.py):
+    - __init__(self, fetch_fn): fetch_fn is an async callable (str) -> Any
+    - async fetch_one(source: str) -> Any: fetch a single source
+    - async fetch_all(sources: list[str]) -> list[Any]: fetch all concurrently with asyncio.gather
+
+    5 slow fetches (0.1s each) should complete in ~0.1s total (concurrent, not sequential).
+    All tests in test_async_fetcher.py must pass.
+  setup_files:
+    - sync_fetcher.py
+    - test_async_fetcher.py
+  verification:
+    - cmd: "python -m pytest test_async_fetcher.py -q --tb=short"
+      expect_exit: 0
+  max_steps: 12
+
+# =============================================================================
+# HARD EXPANSION (v0.4.3) — 9 new SE-style tasks
+# =============================================================================
+
+- name: add_comprehensive_test_suite
+  task_id: custom_hard_004
+  difficulty: hard
+  description: >
+    The file payment_processor.py contains a PaymentProcessor class with validation,
+    idempotency, wallet payments, refunds, and status tracking. It has no tests.
+
+    File provided: payment_processor.py (do NOT modify)
+
+    Write a comprehensive test suite in test_payment.py covering at least 15 test cases:
+    - Happy-path: process card, bank transfer, wallet payments
+    - Idempotency: processing the same payment_id twice returns the first result
+    - Validation: too small, too large, unsupported currency, empty ID
+    - Wallet: insufficient funds raises InsufficientFundsError, deducts balance
+    - Refund: refund completed payment, cannot refund pending/failed/refunded
+    - list_by_status: filters correctly
+
+    All tests must pass. Aim for broad edge-case coverage.
+  setup_files:
+    - payment_processor.py
+  verification:
+    - cmd: "python -m pytest test_payment.py -q --tb=short"
+      expect_exit: 0
+    - cmd: "python -m pytest test_payment.py --co -q 2>&1 | grep -c 'test_'"
+      expect_exit: 0
+  max_steps: 18
+
+- name: refactor_god_class
+  task_id: custom_hard_005
+  difficulty: hard
+  description: >
+    The file report_generator.py contains multiple classes in one 350-line file:
+    SalesRecord, ReportConfig, ReportData, ReportFormatter, ReportLoader, ReportGenerator.
+
+    Files provided: report_generator.py, test_report.py (do NOT modify test file)
+
+    Split report_generator.py into 3 focused modules:
+    - report_models.py: SalesRecord, ReportConfig, ReportData
+    - report_formatter.py: ReportFormatter, ReportLoader
+    - report_generator.py: ReportGenerator (orchestrator — keep this filename)
+
+    ReportGenerator must still be importable from report_generator.py and all
+    data classes must be importable from report_models.py. All tests must still pass.
+  setup_files:
+    - report_generator.py
+    - test_report.py
+  verification:
+    - cmd: "python -m pytest test_report.py -q --tb=short"
+      expect_exit: 0
+    - cmd: "python -c \"from report_models import SalesRecord, ReportData; print('ok')\""
+      expect_exit: 0
+    - cmd: "python -c \"from report_formatter import ReportFormatter; print('ok')\""
+      expect_exit: 0
+  max_steps: 18
+
+- name: add_observability_layer
+  task_id: custom_hard_006
+  difficulty: hard
+  description: >
+    The file data_service.py contains a DataService class with set/get/delete/list_keys/bulk_set.
+    It has no logging or metrics.
+
+    Files provided: data_service.py, test_observability.py (do NOT modify test file)
+
+    Add to DataService:
+    1. Structured logging on every operation using Python's stdlib logging module.
+       Each log record must include at least: operation name and key (use DEBUG or INFO level).
+       Log at WARNING or ERROR level when an operation raises DataServiceError.
+    2. get_metrics() -> dict: return per-operation call counts and average duration in ms.
+       Structure: {"set": {"count": N, "avg_duration_ms": X}, "get": {...}, ...}
+
+    All existing behaviour must be preserved. All tests in test_observability.py must pass.
+  setup_files:
+    - data_service.py
+    - test_observability.py
+  verification:
+    - cmd: "python -m pytest test_observability.py -q --tb=short"
+      expect_exit: 0
+  max_steps: 16
+
+- name: debug_memory_retention
+  task_id: custom_hard_007
+  difficulty: hard
+  description: >
+    The file leaky_cache.py contains EventCache, an event bus that stores history and
+    notifies listeners. It has two memory problems:
+    1. self._history grows without bound — no size limit
+    2. self._listeners has no removal mechanism — callbacks accumulate forever
+
+    Files provided: leaky_cache.py, test_memory.py (do NOT modify test file)
+
+    Fix both issues:
+    1. Bound _history to max_history entries (default 1000, set via __init__ param).
+       Evict oldest entries first (FIFO). After emitting 50 events with max_history=10,
+       history_size() must equal 10 (not 50).
+    2. Add unsubscribe(callback) method so listeners can be removed.
+
+    All tests in test_memory.py must pass, including the sustained-use bounded-memory test.
+  setup_files:
+    - leaky_cache.py
+    - test_memory.py
+  verification:
+    - cmd: "python -m pytest test_memory.py -q --tb=short"
+      expect_exit: 0
+  max_steps: 15
+
+- name: implement_undo_redo_system
+  task_id: custom_hard_008
+  difficulty: hard
+  description: >
+    The file text_editor.py contains an Editor class with insert_line, delete_line,
+    and replace_line operations but no undo/redo capability.
+
+    Files provided: text_editor.py, test_editor_undo.py (do NOT modify test file)
+
+    Extend Editor with Command-pattern undo/redo:
+    - Implement concrete command classes: InsertCommand, DeleteCommand, ReplaceCommand
+    - Editor.undo() reverses the last command; raises an exception if nothing to undo
+    - Editor.redo() re-applies the last undone command; raises an exception if nothing to redo
+    - New edits (insert/delete/replace) clear the redo stack
+    - Editor.history property: list of executed commands
+
+    The existing insert_line/delete_line/replace_line methods must continue to work
+    AND record their actions so undo/redo applies to them.
+    All tests in test_editor_undo.py must pass.
+  setup_files:
+    - text_editor.py
+    - test_editor_undo.py
+  verification:
+    - cmd: "python -m pytest test_editor_undo.py -q --tb=short"
+      expect_exit: 0
+  max_steps: 18
+
+- name: build_orm_query_builder
+  task_id: custom_hard_009
+  difficulty: hard
+  description: >
+    The file orm_base.py provides a simple ORM Model base class with basic CRUD
+    (save, find_by_id, find_all, delete). The QueryBuilder class is a stub.
+
+    Files provided: orm_base.py, test_orm.py (do NOT modify test file)
+
+    Implement QueryBuilder so that Model.query() returns a chainable builder:
+    - .filter(**kwargs) -> QueryBuilder: add WHERE conditions (equality only)
+    - .order_by(field, desc=False) -> QueryBuilder: set ORDER BY
+    - .limit(n) -> QueryBuilder: set LIMIT
+    - .all() -> list[Model]: execute and return all matching rows
+    - .first() -> Model | None: return first match or None
+    - .count() -> int: return count of matching rows
+
+    Each method (except all/first/count) must return self for chaining.
+    All tests in test_orm.py must pass.
+  setup_files:
+    - orm_base.py
+    - test_orm.py
+  verification:
+    - cmd: "python -m pytest test_orm.py -q --tb=short"
+      expect_exit: 0
+  max_steps: 18
+
+- name: add_rate_limiting_middleware
+  task_id: custom_hard_010
+  difficulty: hard
+  description: >
+    The file middleware.py contains LoggingMiddleware and TimingMiddleware.
+    RateLimitMiddleware is stubbed out with NotImplementedError.
+
+    Files provided: middleware.py, test_middleware_rate.py (do NOT modify test file)
+
+    Implement RateLimitMiddleware using the token-bucket algorithm:
+    - Rate-limit per client IP address (environ["REMOTE_ADDR"])
+    - rate: tokens refilled per second, capacity: max burst size
+    - If tokens available: process request (deduct 1 token), return app response
+    - If no tokens: return 429 Too Many Requests with a non-empty body
+    - Thread-safe: multiple concurrent requests must not corrupt bucket state
+
+    All tests in test_middleware_rate.py must pass, including the thread-safety test.
+  setup_files:
+    - middleware.py
+    - test_middleware_rate.py
+  verification:
+    - cmd: "python -m pytest test_middleware_rate.py -q --tb=short"
+      expect_exit: 0
+  max_steps: 18
+
+- name: implement_plugin_loader
+  task_id: custom_hard_011
+  difficulty: hard
+  description: >
+    The file app_skeleton.py contains an Application class and a PluginLoader stub.
+    PluginLoader methods raise NotImplementedError.
+
+    Files provided: app_skeleton.py, test_plugins.py (do NOT modify test file)
+
+    Implement PluginLoader:
+    - load_all(directory): scan for plugin_*.py files, import each as a module,
+      read PLUGIN_NAME attribute, wrap in Plugin object. Return list of plugin names.
+    - reload(name): reload the plugin module from its original path (hot-reload).
+    - get(name): return Plugin by PLUGIN_NAME, raise PluginError if not found.
+    - list_plugins(): return list of loaded plugin names.
+
+    Use importlib.util to load modules from file paths dynamically.
+    All tests in test_plugins.py must pass, including the hot-reload test.
+  setup_files:
+    - app_skeleton.py
+    - test_plugins.py
+  verification:
+    - cmd: "python -m pytest test_plugins.py -q --tb=short"
+      expect_exit: 0
+  max_steps: 20
+
+- name: migrate_config_system
+  task_id: custom_hard_012
+  difficulty: hard
+  description: >
+    The files old_config.py and config_v2_schema.py represent a legacy flat-key config
+    system and a new typed nested config schema respectively.
+
+    Files provided: old_config.py, config_v2_schema.py, test_config_migration.py (do NOT modify test file)
+
+    Implement in old_config.py:
+    1. migrate_config(old: dict) -> dict: convert flat dot-notation keys to nested dict.
+       Type coercion: keys ending in "port", "pool_size", "ttl" -> int;
+       keys ending in "debug", "enabled" -> bool ("true"/"false"); others -> str.
+    2. load_config(path) -> ConfigV2: read YAML, auto-detect schema version:
+       - v1 (flat string values) -> call migrate_config() then ConfigV2.from_dict()
+       - v2 (nested dicts) -> call ConfigV2.from_dict() directly
+       - Raise FileNotFoundError if file does not exist.
+
+    OldConfig class must continue to work as before. All tests must pass.
+  setup_files:
+    - old_config.py
+    - config_v2_schema.py
+    - test_config_migration.py
+  verification:
+    - cmd: "python -m pytest test_config_migration.py -q --tb=short"
+      expect_exit: 0
+  max_steps: 18

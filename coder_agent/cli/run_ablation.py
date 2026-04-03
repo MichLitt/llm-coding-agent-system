@@ -33,7 +33,7 @@ from .factory import CONFIG_PRESETS, make_agent
 @click.command(name="run_ablation")
 @click.option(
     "--benchmark",
-    type=click.Choice(["custom", "humaneval"]),
+    type=click.Choice(["custom", "humaneval", "mbpp"]),
     default="custom",
     show_default=True,
     help="Benchmark suite to run ablation against.",
@@ -101,9 +101,9 @@ def run_ablation_command(
 
     runner = EvalRunner(agent_factory=agent_factory, output_dir=output_dir)
 
-    # Load tasks
-    tasks = _load_tasks(benchmark)
-    if limit > 0:
+    # Load tasks (for MBPP, pass limit to avoid downloading full 374 when limit is set)
+    tasks = _load_tasks(benchmark, limit=limit)
+    if limit > 0 and benchmark != "mbpp":
         tasks = tasks[:limit]
 
     click.echo(f"Loaded {len(tasks)} {benchmark} task(s)")
@@ -143,7 +143,7 @@ def run_ablation_command(
     click.echo(f"\nReport written to: {report_path}")
 
 
-def _load_tasks(benchmark: str):
+def _load_tasks(benchmark: str, limit: int = 0):
     if benchmark == "humaneval":
         from coder_agent.eval.benchmarks.humaneval import HumanEvalBenchmark
         from coder_agent.eval.runner import TaskSpec
@@ -166,6 +166,12 @@ def _load_tasks(benchmark: str):
             )
             for t in he_tasks
         ]
+    elif benchmark == "mbpp":
+        from coder_agent.eval.benchmarks.mbpp import MBPPBenchmark
+
+        mb = MBPPBenchmark()
+        mb_tasks = mb.load(limit=limit or 60)
+        return [mb.to_task_spec(t) for t in mb_tasks]
     else:
         from coder_agent.eval.benchmarks.custom.loader import load_custom_tasks
 

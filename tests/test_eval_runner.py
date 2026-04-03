@@ -170,10 +170,12 @@ def test_run_task_routes_stop_gate_and_auto_complete_independently(tmp_path):
     assert gate_agent.run_calls[0]["enforce_stop_verification"] is True
     assert gate_agent.run_calls[0]["auto_complete_on_verification"] is True
 
+    # After Fix 1 (v0.4.4): enforce_stop_verification is always True when a
+    # verification hook exists, regardless of the experiment_config verification_gate flag.
     no_gate_agent = DummyAgent({"verification_gate": False})
     runner.run_task(task, no_gate_agent, config_label="c3")
     assert no_gate_agent.run_calls[0]["verification_hook"] is not None
-    assert no_gate_agent.run_calls[0]["enforce_stop_verification"] is False
+    assert no_gate_agent.run_calls[0]["enforce_stop_verification"] is True
     assert no_gate_agent.run_calls[0]["auto_complete_on_verification"] is True
 
 

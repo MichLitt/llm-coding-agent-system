@@ -237,32 +237,90 @@ class _OpenAIBackend:
 # ---------------------------------------------------------------------------
 
 def _normalize_messages_for_anthropic(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return a copy of messages with non-Anthropic fields stripped from tool_result blocks.
+    """Convert OpenAI-format message history to Anthropic message format.
 
-    The agent stores ``error_kind`` in tool_result content blocks for internal
-    classification, but the Anthropic API does not recognise this field and may
-    reject the request. This function strips it while preserving ``is_error``.
+    The agent stores messages in OpenAI format (tool_calls on assistant messages,
+    role="tool" for results). The Anthropic API requires a different structure:
+    - assistant messages with tool calls → content list with tool_use blocks
+    - consecutive role="tool" messages → single user message with tool_result blocks
+    - error_kind is stripped (internal field not recognized by Anthropic)
+
+    Also handles already-Anthropic-format messages (content as a list with
+    tool_use/tool_result blocks) by stripping internal fields like error_kind.
     """
-    result = []
+    result: list[dict[str, Any]] = []
+    pending_tool_results: list[dict[str, Any]] = []
+
+    def flush_tool_results() -> None:
+        if not pending_tool_results:
+            return
+        result.append({"role": "user", "content": pending_tool_results[:]})
+        pending_tool_results.clear()
+
     for msg in messages:
-        content = msg.get("content")
-        if not isinstance(content, list):
-            result.append(msg)
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        tool_calls = msg.get("tool_calls")  # OpenAI-format tool calls on assistant msgs
+
+        # --- OpenAI-format tool result: role="tool" ---
+        if role == "tool":
+            tool_call_id = msg.get("tool_call_id", "")
+            tool_result_block: dict[str, Any] = {
+                "type": "tool_result",
+                "tool_use_id": tool_call_id,
+                "content": str(content),
+            }
+            if msg.get("is_error"):
+                tool_result_block["is_error"] = True
+            pending_tool_results.append(tool_result_block)
             continue
-        new_content = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "tool_result":
-                clean: dict[str, Any] = {
-                    "type": "tool_result",
-                    "tool_use_id": block["tool_use_id"],
-                    "content": block.get("content", ""),
-                }
-                if block.get("is_error"):
-                    clean["is_error"] = True
-                new_content.append(clean)
-            else:
-                new_content.append(block)
-        result.append({**msg, "content": new_content})
+
+        # Any non-tool message flushes pending tool results first
+        flush_tool_results()
+
+        # --- OpenAI-format assistant message with tool_calls ---
+        if role == "assistant" and tool_calls:
+            content_blocks: list[dict[str, Any]] = []
+            if content:
+                content_blocks.append({"type": "text", "text": str(content)})
+            for tc in tool_calls:
+                fn = tc.get("function", {})
+                raw_args = fn.get("arguments", "{}")
+                try:
+                    parsed_input = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                except (json.JSONDecodeError, TypeError):
+                    parsed_input = {}
+                content_blocks.append({
+                    "type": "tool_use",
+                    "id": tc.get("id", ""),
+                    "name": fn.get("name", ""),
+                    "input": parsed_input,
+                })
+            result.append({"role": "assistant", "content": content_blocks})
+            continue
+
+        # --- Already-Anthropic content list (strip internal fields) ---
+        if isinstance(content, list):
+            new_content: list[dict[str, Any]] = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    clean: dict[str, Any] = {
+                        "type": "tool_result",
+                        "tool_use_id": block.get("tool_use_id", ""),
+                        "content": block.get("content", ""),
+                    }
+                    if block.get("is_error"):
+                        clean["is_error"] = True
+                    new_content.append(clean)
+                else:
+                    new_content.append(block)
+            result.append({**msg, "content": new_content})
+            continue
+
+        # --- Plain text user/assistant message ---
+        result.append(msg)
+
+    flush_tool_results()
     return result
 
 
