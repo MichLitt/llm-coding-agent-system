@@ -149,3 +149,31 @@ async def test_search_python_fallback_finds_matches_without_ripgrep(tmp_path, mo
 
     assert "beta.py" in result
     assert "goodbye" in result
+
+
+@pytest.mark.asyncio
+async def test_absolute_file_glob_returns_error_not_exception(tmp_path, monkeypatch):
+    """Bug C regression: absolute file_glob must not crash with NotImplementedError."""
+    ws = _make_workspace(tmp_path)
+    monkeypatch.setattr(search_tool, "_WORKSPACE", ws)
+    # Force Python fallback (no ripgrep) so the rglob() path is exercised.
+    monkeypatch.setattr(shutil, "which", lambda _: None)
+
+    tool = SearchCodeTool()
+    result = await tool.execute(pattern="def", file_glob="/absolute/path/*.py")
+
+    assert result.startswith("Error")
+    assert "relative" in result.lower() or "absolute" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_absolute_file_glob_with_ripgrep_returns_error(tmp_path, monkeypatch):
+    """Absolute file_glob is rejected even when ripgrep is present."""
+    ws = _make_workspace(tmp_path)
+    monkeypatch.setattr(search_tool, "_WORKSPACE", ws)
+    # Keep ripgrep available (don't monkeypatch shutil.which).
+
+    tool = SearchCodeTool()
+    result = await tool.execute(pattern="def", file_glob="/absolute/path/*.py")
+
+    assert result.startswith("Error")

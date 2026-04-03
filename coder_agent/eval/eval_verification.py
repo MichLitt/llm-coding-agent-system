@@ -7,7 +7,7 @@ from coder_agent.core.agent import VerificationResult
 
 
 def expected_checks(task: Any) -> int:
-    if task.metadata.get("benchmark") == "humaneval":
+    if task.metadata.get("benchmark") in ("humaneval", "mbpp"):
         return 1
     return max(1, len(task.verification))
 
@@ -112,11 +112,39 @@ def verify_humaneval(task: Any, workspace: Path) -> VerificationResult:
     return VerificationResult(False, f"Official HumanEval verification failed. {summary}")
 
 
+def run_mbpp_check(task: Any, workspace: Path) -> tuple[int, str | None]:
+    from coder_agent.eval.benchmarks.mbpp import MBPPBenchmark
+
+    solution_path = workspace / "solution.py"
+    if not solution_path.exists():
+        return 0, "solution.py not found"
+
+    solution = solution_path.read_text(encoding="utf-8", errors="replace").strip()
+    if not solution:
+        return 0, "solution.py is empty"
+
+    benchmark = MBPPBenchmark()
+    passed = benchmark.evaluate_solution_from_metadata(task.metadata, solution)
+    if passed:
+        return 1, None
+    return 0, "MBPP assertion tests failed"
+
+
+def verify_mbpp(task: Any, workspace: Path) -> VerificationResult:
+    checks_passed, error_message = run_mbpp_check(task, workspace)
+    if checks_passed == 1:
+        return VerificationResult(True, "Official MBPP verification passed.")
+    summary = (error_message or "MBPP verification failed").strip()
+    return VerificationResult(False, f"Official MBPP verification failed. {summary}")
+
+
 def build_verification_hook(task: Any, workspace: Path) -> Callable[[], VerificationResult] | None:
     contract = dict(task.verification_contract)
     if not contract:
         if task.metadata.get("benchmark") == "humaneval":
             contract = {"mode": "humaneval_official", "max_attempts": 2}
+        elif task.metadata.get("benchmark") == "mbpp":
+            contract = {"mode": "mbpp_official", "max_attempts": 2}
         elif task.verification:
             contract = {"mode": "custom_commands", "max_attempts": 2}
         else:
@@ -125,6 +153,8 @@ def build_verification_hook(task: Any, workspace: Path) -> Callable[[], Verifica
     mode = contract.get("mode")
     if mode == "humaneval_official":
         return lambda: verify_humaneval(task, workspace)
+    if mode == "mbpp_official":
+        return lambda: verify_mbpp(task, workspace)
     if mode == "custom_commands":
         return lambda: verify_custom(task.verification, workspace)
     return None

@@ -60,6 +60,11 @@ Guidelines:
 - Implement the smallest working version before expanding tests or features.
 - Write tests only for behavior explicitly required by the task.
 - Keep tests compact. Do not generate a large test suite when the task only names a few required cases.
+- IMPORTANT: Always use tools (write_file, run_command) to implement changes.
+  To create or overwrite a file use write_file with operation="write".
+  To make a targeted text replacement use write_file with operation="edit".
+  Never describe code changes in text only — write the actual code to disk using the
+  appropriate tool, then run it to verify.
 - After writing or editing code, run it (or run tests) to verify correctness.
 - If a command fails, read the error carefully and fix the root cause.
 - After the first failing test run, read the failure output and the relevant file, then change either the implementation or the tests, not both in the same step unless the failure clearly requires both.

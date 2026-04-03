@@ -1,0 +1,30 @@
+{"timestamp": "2024-01-15T10:00:01Z", "level": "INFO", "service": "api", "message": "Server started", "request_id": null}
+{"timestamp": "2024-01-15T10:00:05Z", "level": "INFO", "service": "api", "message": "Request received", "request_id": "req-001"}
+{"timestamp": "2024-01-15T10:00:05Z", "level": "DEBUG", "service": "db", "message": "Query executed", "request_id": "req-001"}
+{"timestamp": "2024-01-15T10:00:06Z", "level": "INFO", "service": "api", "message": "Request completed", "request_id": "req-001"}
+{"timestamp": "2024-01-15T10:00:10Z", "level": "WARNING", "service": "api", "message": "Slow response detected", "request_id": "req-002"}
+{"timestamp": "2024-01-15T10:00:11Z", "level": "ERROR", "service": "db", "message": "Connection timeout", "request_id": "req-002"}
+{"timestamp": "2024-01-15T10:00:12Z", "level": "ERROR", "service": "api", "message": "Request failed", "request_id": "req-002"}
+{"timestamp": "2024-01-15T10:00:20Z", "level": "INFO", "service": "api", "message": "Request received", "request_id": "req-003"}
+THIS IS NOT VALID JSON — malformed line
+{"timestamp": "2024-01-15T10:00:21Z", "level": "DEBUG", "service": "cache", "message": "Cache hit", "request_id": "req-003"}
+{"timestamp": "2024-01-15T10:00:22Z", "level": "INFO", "service": "api", "message": "Request completed", "request_id": "req-003"}
+{"timestamp": "2024-01-15T10:00:30Z", "level": "INFO", "service": "api", "message": "Request received", "request_id": "req-004"}
+{"timestamp": "2024-01-15T10:00:31Z", "level": "WARNING", "service": "auth", "message": "Token expiring soon", "request_id": "req-004"}
+{"timestamp": "2024-01-15T10:00:32Z", "level": "INFO", "service": "api", "message": "Request completed", "request_id": "req-004"}
+{missing_quotes: true}
+{"timestamp": "2024-01-15T10:00:40Z", "level": "ERROR", "service": "api", "message": "Unhandled exception", "request_id": "req-005"}
+{"timestamp": "2024-01-15T10:00:40Z", "level": "CRITICAL", "service": "api", "message": "Service degraded", "request_id": null}
+{"timestamp": "2024-01-15T10:00:50Z", "level": "INFO", "service": "api", "message": "Recovery complete", "request_id": null}
+{"timestamp": "2024-01-15T10:01:00Z", "level": "INFO", "service": "api", "message": "Request received", "request_id": "req-006"}
+{"timestamp": "2024-01-15T10:01:01Z", "level": "INFO", "service": "db", "message": "Query executed", "request_id": "req-006"}
+{"timestamp": "2024-01-15T10:01:02Z", "level": "INFO", "service": "api", "message": "Request completed", "request_id": "req-006"}
+{"timestamp": "2024-01-15T10:01:10Z": BROKEN JSON
+{"timestamp": "2024-01-15T10:01:15Z", "level": "DEBUG", "service": "cache", "message": "Cache miss", "request_id": "req-007"}
+{"timestamp": "2024-01-15T10:01:16Z", "level": "INFO", "service": "api", "message": "Request completed", "request_id": "req-007"}
+{"timestamp": "2024-01-15T10:01:20Z", "level": "WARNING", "service": "db", "message": "High query count", "request_id": null}
+{"timestamp": "2024-01-15T10:01:30Z", "level": "INFO", "service": "api", "message": "Request received", "request_id": "req-008"}
+{"timestamp": "2024-01-15T10:01:31Z", "level": "INFO", "service": "api", "message": "Request completed", "request_id": "req-008"}
+{"timestamp": "2024-01-15T10:01:40Z", "level": "INFO", "service": "api", "message": "Request received", "request_id": "req-009"}
+{"timestamp": "2024-01-15T10:01:41Z", "level": "ERROR", "service": "auth", "message": "Invalid token", "request_id": "req-009"}
+{"timestamp": "2024-01-15T10:01:42Z", "level": "INFO", "service": "api", "message": "Request rejected", "request_id": "req-009"}

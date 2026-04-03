@@ -74,7 +74,24 @@ class SearchCodeTool(Tool):
         except re.error as e:
             return f"Error: invalid regex: {e}"
 
-        files = [root] if root.is_file() else list(root.rglob(file_glob or "*"))
+        # Validate file_glob before rglob: Python 3.12 raises NotImplementedError
+        # for absolute patterns (e.g. agent passes file_glob="/workspace/*.py").
+        if file_glob and file_glob != "*":
+            from pathlib import PurePosixPath
+            if PurePosixPath(file_glob).is_absolute():
+                return (
+                    "Error: file_glob must be a relative glob pattern (e.g. '*.py'), "
+                    f"not an absolute path. Got: {file_glob!r}. "
+                    "Use the path parameter to narrow the search directory instead."
+                )
+        try:
+            files = [root] if root.is_file() else list(root.rglob(file_glob or "*"))
+        except NotImplementedError:
+            return (
+                "Error: file_glob must be a relative glob pattern (e.g. '*.py'), "
+                f"not an absolute path. Got: {file_glob!r}. "
+                "Use the path parameter to narrow the search directory instead."
+            )
         results: list[str] = []
         for file_path in files:
             if not file_path.is_file():

@@ -174,9 +174,13 @@ async def handle_completion_turn(
             await agent.history.add_message(
                 "user",
                 (
-                    "External verification failed. Fix the implementation and only "
-                    "stop after verification passes.\n\n"
-                    f"{failure_summary}"
+                    "External verification failed.\n\n"
+                    f"{failure_summary}\n\n"
+                    "You MUST use the write_file tool to write your implementation to disk "
+                    "(operation=\"write\" to create/overwrite, operation=\"edit\" for targeted replacement). "
+                    "Do NOT describe the solution in text — "
+                    "call write_file to create or modify the file, then "
+                    "stop and I will verify again."
                 ),
             )
             return None

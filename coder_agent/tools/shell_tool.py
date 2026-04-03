@@ -3,6 +3,7 @@
 import asyncio
 import locale
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -66,6 +67,34 @@ class RunCommandTool(Tool):
     async def execute(self, command: str, timeout: int = 30) -> str:
         if any(p in command for p in BLOCKED_PATTERNS):
             raise RuntimeError("command blocked for safety")
+
+        # Normalize python/pytest invocations to the venv interpreter so that
+        # "python foo.py" and "cd /path && python foo.py" work on systems where
+        # only "python3" is in PATH (e.g. macOS).  The negative lookbehind
+        # (?<![/.\w]) prevents matching path components like /usr/bin/python or
+        # the token python3.
+        #
+        # A single-pass alternation regex is used to avoid the interaction bug
+        # that occurs with sequential substitutions:
+        #   python -m pytest  →(python)→  "/venv/python" -m pytest
+        #                     →(pytest)→  "/venv/python" -m "/venv/python" -m pytest ← BUG
+        # By using one regex with alternation (longest match first), each token
+        # is replaced exactly once and the replacement text is never re-scanned.
+        _exe = sys.executable
+
+        def _replace_python_token(m: re.Match) -> str:
+            token = m.group(0)
+            if re.match(r"python\s+-m\s+pytest", token):
+                return f'"{_exe}" -m pytest'
+            if token == "pytest":
+                return f'"{_exe}" -m pytest'
+            return f'"{_exe}"'  # bare "python"
+
+        command = re.sub(
+            r'(?<![/.\w])(?:python\s+-m\s+pytest|python|pytest)(?=\s|$)',
+            _replace_python_token,
+            command,
+        )
 
         proc = await asyncio.create_subprocess_shell(
             command,

@@ -14,7 +14,7 @@ CONFIG_PRESETS: dict[str, dict] = {
     "C2": {"correction": False, "memory": False, "planning_mode": "react"},
     "C3": {"correction": True, "memory": False, "planning_mode": "react"},
     "C4": {"correction": True, "memory": True, "planning_mode": "react"},
-    "C5": {"correction": True, "memory": True, "planning_mode": "react", "checklist": True},
+    "C5": {"correction": True, "memory": False, "planning_mode": "react", "checklist": True},
     "C6": {"correction": True, "memory": False, "planning_mode": "react", "verification_gate": True},
 }
 ACTIVE_PRESETS: tuple[str, ...] = ("default", "C3", "C4", "C6")
