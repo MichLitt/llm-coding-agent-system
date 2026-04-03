@@ -177,10 +177,27 @@ def test_safe_print_swallows_oserror(monkeypatch):
 
     monkeypatch.setattr(builtins, "print", flaky_print)
     agent = _agent(FakeClient([]))
-
     agent._safe_print("stream chunk", end="")
 
     assert calls["count"] == 2
+
+
+def test_run_records_memory_when_trajectory_finalization_is_disabled():
+    memory = FakeMemory()
+    trajectory_store = FakeTrajectoryStore()
+    agent = _agent(
+        FakeClient([_final_response("done")]),
+        memory=memory,
+        trajectory_store=trajectory_store,
+    )
+
+    result = agent.run("task", task_id="eval-task", finalize_trajectory=False)
+
+    assert result.success is True
+    assert len(memory.recorded) == 1
+    assert memory.recorded[0][1] == "task"
+    assert len(trajectory_store.started) == 1
+    assert len(trajectory_store.finished) == 0
 
 
 def test_build_import_error_guidance_prefers_local_fix(tmp_path, monkeypatch):
