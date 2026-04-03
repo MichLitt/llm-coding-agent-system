@@ -50,6 +50,7 @@ class Agent:
         self.tool_dict = {tool.name: tool for tool in tools}
         self.experiment_id = experiment_id
         self.experiment_config = experiment_config or {}
+        self._experiment_config: dict[str, Any] = {}
         self.verbose = verbose
         self.client = client
         self.memory = memory

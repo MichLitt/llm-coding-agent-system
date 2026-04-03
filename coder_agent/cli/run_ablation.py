@@ -8,6 +8,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -65,6 +66,11 @@ from .factory import CONFIG_PRESETS, make_agent
 )
 @click.option("--resume", is_flag=True, help="Resume from checkpoints.")
 @click.option(
+    "--experiment-config",
+    default=None,
+    help='JSON object passed to make_agent() as runtime experiment config, e.g. \'{"doom_loop_threshold": 3}\'.',
+)
+@click.option(
     "--version",
     default="v0.4.1",
     show_default=True,
@@ -77,6 +83,7 @@ def run_ablation_command(
     report_dir: str | None,
     limit: int,
     resume: bool,
+    experiment_config: str | None,
     version: str,
 ) -> None:
     """Run the C1–C6 ablation experiment and report per-feature contribution deltas."""
@@ -95,9 +102,16 @@ def run_ablation_command(
         else Path(__file__).resolve().parents[2] / "report"
     )
     tstore = TrajectoryStore(cfg.eval.trajectory_dir)
+    parsed_experiment_config = _parse_experiment_config(experiment_config)
 
     def agent_factory(agent_cfg: dict):
-        return make_agent(agent_cfg, experiment_id="ablation", trajectory_store=tstore)
+        return make_agent(
+            agent_cfg,
+            experiment_id="ablation",
+            trajectory_store=tstore,
+            config_label=_resolve_config_label(agent_cfg),
+            experiment_config=parsed_experiment_config,
+        )
 
     runner = EvalRunner(agent_factory=agent_factory, output_dir=output_dir)
 
@@ -176,6 +190,25 @@ def _load_tasks(benchmark: str, limit: int = 0):
         from coder_agent.eval.benchmarks.custom.loader import load_custom_tasks
 
         return load_custom_tasks()
+
+
+def _parse_experiment_config(raw_value: str | None) -> dict | None:
+    if raw_value is None:
+        return None
+    try:
+        parsed = json.loads(raw_value)
+    except json.JSONDecodeError as exc:
+        raise click.BadParameter(f"Invalid JSON for --experiment-config: {exc.msg}") from exc
+    if not isinstance(parsed, dict):
+        raise click.BadParameter("--experiment-config must decode to a JSON object.")
+    return parsed
+
+
+def _resolve_config_label(agent_cfg: dict) -> str | None:
+    for label, preset_cfg in CONFIG_PRESETS.items():
+        if preset_cfg == agent_cfg:
+            return label
+    return None
 
 
 def main() -> None:
