@@ -41,6 +41,16 @@ class CompressionResult:
         return self.compressed_chars / self.original_chars
 
 
+def _context_setting(
+    key: str,
+    default: Any,
+    experiment_config: dict[str, Any] | None = None,
+) -> Any:
+    if experiment_config and key in experiment_config:
+        return experiment_config[key]
+    return getattr(cfg.context, key, default)
+
+
 def _is_terminal_output(content: str) -> bool:
     if content.startswith("Exit code:"):
         return True
@@ -181,14 +191,17 @@ def _compress_file_smart(lines: list[str]) -> str:
     return compressed
 
 
-def compress_observation(content: str) -> CompressionResult:
+def compress_observation(
+    content: str,
+    experiment_config: dict[str, Any] | None = None,
+) -> CompressionResult:
     original_chars = len(content)
     lines = content.splitlines()
 
     if len(lines) <= _SHORT_THRESHOLD:
         return CompressionResult(content, False, original_chars, original_chars)
 
-    mode = getattr(cfg.context, "observation_compression_mode", "rule_based")
+    mode = _context_setting("observation_compression_mode", "rule_based", experiment_config)
     if mode == "smart":
         if _is_terminal_output(content):
             compressed = _compress_terminal_smart(lines)
@@ -213,11 +226,19 @@ def compress_observation(content: str) -> CompressionResult:
 class MessageHistory:
     """Conversation history with token-aware truncation."""
 
-    def __init__(self, model: str, system: str, context_window_tokens: int, client: Any):
+    def __init__(
+        self,
+        model: str,
+        system: str,
+        context_window_tokens: int,
+        client: Any,
+        experiment_config: dict[str, Any] | None = None,
+    ):
         self.model = model
         self.system = system
         self.context_window_tokens = context_window_tokens
         self.client = client
+        self.experiment_config = dict(experiment_config or {})
         self.messages: list[dict] = []
         self.total_tokens = len(system) // 4
         self.message_tokens: list[tuple[int, int]] = []
@@ -231,7 +252,7 @@ class MessageHistory:
     ) -> None:
         if role == "tool":
             tool_call_id = tool_calls[0]["id"] if tool_calls else ""
-            compressed = compress_observation(str(content))
+            compressed = compress_observation(str(content), self.experiment_config)
             msg = {"role": "tool", "tool_call_id": tool_call_id, "content": compressed.content}
         else:
             msg = {"role": role, "content": content}
@@ -247,14 +268,14 @@ class MessageHistory:
             self.message_tokens.append((0, 0))
 
     def truncate(self) -> None:
-        compression_strategy = cfg.context.compression_strategy
+        compression_strategy = _context_setting("compression_strategy", "rule_based", self.experiment_config)
         did_truncate = False
         while self.total_tokens > self.context_window_tokens and self.messages:
             compressed = False
             if compression_strategy != "disabled":
                 for i, msg in enumerate(self.messages):
                     if msg.get("role") == "tool" and not str(msg.get("content", "")).startswith("[COMPRESSED]"):
-                        result = compress_observation(str(msg["content"]))
+                        result = compress_observation(str(msg["content"]), self.experiment_config)
                         if result.was_compressed:
                             self.messages[i] = {**msg, "content": f"[COMPRESSED] {result.content}"}
                             saved = (result.original_chars - result.compressed_chars) // 4

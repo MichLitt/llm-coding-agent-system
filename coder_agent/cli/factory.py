@@ -60,8 +60,8 @@ def make_agent(
         trajectory_store=trajectory_store,
         experiment_id=experiment_id,
         experiment_config=resolved_agent_config,
+        runtime_config=resolved_experiment_config,
     )
-    agent._experiment_config = resolved_experiment_config
     return agent
 
 
