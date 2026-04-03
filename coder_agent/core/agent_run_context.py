@@ -127,13 +127,32 @@ async def seed_run_context(agent: Any, state: Any, user_input: str) -> None:
     if agent.memory:
         state.exception_stage = "memory.lookup"
         state.project_id = agent.memory.get_or_create_project(cfg.agent.workspace)
-        recent = agent.memory.get_recent_tasks(state.project_id, n=3)
-        if recent:
-            summary_lines = ["Recent tasks in this project:"]
-            for task in recent:
-                status = "OK" if task["success"] else "ERR"
-                summary_lines.append(f"  {status} {task['description']} ({task['steps']} steps)")
-            await agent.history.add_message("user", "\n".join(summary_lines))
+        lookup_mode = agent.experiment_config.get("memory_lookup_mode", cfg.agent.memory_lookup_mode)
+        if lookup_mode == "similarity":
+            similar = agent.memory.get_similar_tasks(state.project_id, user_input, n=3)
+            if similar:
+                summary_lines = ["[Memory] Similar completed tasks in this run:"]
+                for index, task in enumerate(similar, 1):
+                    status = "OK" if task["success"] else "ERR"
+                    termination = task.get("termination_reason") or "unknown"
+                    summary_lines.append(
+                        f'  {index}. [{status}] "{task["description"]}" ({task["steps"]} steps) - termination: {termination}'
+                    )
+                    if not task["success"] and task.get("error_summary"):
+                        summary = " ".join(task["error_summary"].split())[:100]
+                        summary_lines.append(f"     Summary: {summary}")
+                memory_prompt = "\n".join(summary_lines)
+                if len(memory_prompt) > 400:
+                    memory_prompt = memory_prompt[:397].rstrip() + "..."
+                await agent.history.add_message("user", memory_prompt)
+        else:
+            recent = agent.memory.get_recent_tasks(state.project_id, n=3)
+            if recent:
+                summary_lines = ["Recent tasks in this project:"]
+                for task in recent:
+                    status = "OK" if task["success"] else "ERR"
+                    summary_lines.append(f"  {status} {task['description']} ({task['steps']} steps)")
+                await agent.history.add_message("user", "\n".join(summary_lines))
 
 
 def start_trajectory(agent: Any, state: Any, *, user_input: str, task_id: str) -> None:

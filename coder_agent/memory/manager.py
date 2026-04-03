@@ -5,6 +5,7 @@ Stores project metadata, file summaries, task history, and experiment records.
 
 import hashlib
 import json
+import re
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -57,8 +58,50 @@ CREATE TABLE IF NOT EXISTS experiments (
 """
 
 
+_KEYWORD_STOPWORDS = {
+    "a",
+    "an",
+    "the",
+    "to",
+    "in",
+    "of",
+    "and",
+    "or",
+    "with",
+    "for",
+    "that",
+    "this",
+    "is",
+    "are",
+    "be",
+    "was",
+    "were",
+    "add",
+    "fix",
+    "write",
+    "use",
+    "implement",
+    "make",
+    "create",
+    "update",
+    "return",
+    "get",
+    "set",
+    "run",
+    "check",
+}
+
+
 def _project_id(workspace: Path) -> str:
     return hashlib.sha1(str(workspace.resolve()).encode()).hexdigest()[:16]
+
+
+def _extract_keywords(text: str) -> set[str]:
+    return {
+        token
+        for token in re.split(r"[^a-z0-9]+", text.lower())
+        if len(token) >= 4 and token not in _KEYWORD_STOPWORDS
+    }
 
 
 class MemoryManager:
@@ -154,6 +197,41 @@ class MemoryManager:
             }
             for r in rows
         ]
+
+    def get_similar_tasks(self, project_id: str, description: str, n: int = 3) -> list[dict[str, Any]]:
+        keywords = _extract_keywords(description)
+        if not keywords:
+            return []
+
+        rows = self._conn.execute(
+            """SELECT description, success, steps, tool_calls, termination_reason, error_summary, created_at
+               FROM task_history WHERE project_id = ?
+               ORDER BY created_at DESC LIMIT 100""",
+            (project_id,),
+        ).fetchall()
+
+        scored: list[tuple[int, dict[str, Any]]] = []
+        for row in rows:
+            overlap = len(keywords & _extract_keywords(row["description"]))
+            if overlap < 2:
+                continue
+            scored.append(
+                (
+                    overlap,
+                    {
+                        "description": row["description"],
+                        "success": bool(row["success"]),
+                        "steps": row["steps"],
+                        "tool_calls": json.loads(row["tool_calls"]),
+                        "termination_reason": row["termination_reason"],
+                        "error_summary": row["error_summary"],
+                        "created_at": row["created_at"],
+                    },
+                )
+            )
+
+        scored.sort(key=lambda item: -item[0])
+        return [task for _, task in scored[:n]]
 
     # ------------------------------------------------------------------
     # File summaries

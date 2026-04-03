@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import builtins
+from types import SimpleNamespace
 
 import pytest
 
@@ -23,6 +24,7 @@ from coder_agent.core.agent import (
     TERMINATION_VERIFICATION_FAILED,
     VerificationResult,
 )
+from coder_agent.core.agent_run_context import seed_run_context
 from coder_agent.tools.base import Tool
 from coder_agent.tools.execute import execute_tools
 
@@ -93,17 +95,25 @@ def _parse_error_response() -> dict:
 
 
 class FakeMemory:
-    def __init__(self, recent_tasks=None):
+    def __init__(self, recent_tasks=None, similar_tasks=None):
         self.recent_tasks = recent_tasks or []
+        self.similar_tasks = similar_tasks or []
         self.project_ids: list[str] = []
         self.recorded: list[tuple[str, str, object]] = []
+        self.recent_calls: list[tuple[str, int]] = []
+        self.similar_calls: list[tuple[str, str, int]] = []
 
     def get_or_create_project(self, workspace):
         self.project_ids.append(str(workspace))
         return "project-1"
 
     def get_recent_tasks(self, project_id, n=3):
+        self.recent_calls.append((project_id, n))
         return self.recent_tasks[:n]
+
+    def get_similar_tasks(self, project_id, description, n=3):
+        self.similar_calls.append((project_id, description, n))
+        return self.similar_tasks[:n]
 
     def record_task(self, project_id, description, result):
         self.recorded.append((project_id, description, result))
@@ -715,3 +725,39 @@ async def test_timeout_finalization_records_memory_once(monkeypatch):
     assert len(memory.recorded) == 1
     assert len(trajectory_store.finished) == 1
     assert trajectory_store.finished[0]["termination_reason"] == TERMINATION_MAX_STEPS
+
+
+@pytest.mark.asyncio
+async def test_seed_run_context_uses_similarity_lookup_and_formats_memory_prompt():
+    error_summary = (
+        "AssertionError: downloader coroutine was never awaited while retry cleanup handled the wrong task object."
+    )
+    memory = FakeMemory(
+        similar_tasks=[
+            {
+                "description": "fix async downloader timeout handling",
+                "success": False,
+                "steps": 6,
+                "tool_calls": ["run_command"],
+                "termination_reason": "retry_exhausted",
+                "error_summary": error_summary,
+                "created_at": "2026-04-03T00:00:00+00:00",
+            }
+        ]
+    )
+    agent = _agent(FakeClient([]), {"memory_lookup_mode": "similarity"}, memory=memory)
+    state = SimpleNamespace(exception_stage="init", project_id=None, traj_id=None)
+
+    await seed_run_context(agent, state, "fix async coroutine bugs in downloader")
+
+    assert memory.similar_calls == [("project-1", "fix async coroutine bugs in downloader", 3)]
+    assert memory.recent_calls == []
+    memory_messages = [
+        msg["content"]
+        for msg in agent.history.messages
+        if msg["role"] == "user" and msg["content"].startswith("[Memory] Similar completed tasks in this run:")
+    ]
+    assert len(memory_messages) == 1
+    assert '[ERR] "fix async downloader timeout handling" (6 steps) - termination: retry_exhausted' in memory_messages[0]
+    assert f"Summary: {error_summary[:100]}" in memory_messages[0]
+    assert len(memory_messages[0]) <= 400
