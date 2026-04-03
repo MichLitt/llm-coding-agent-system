@@ -80,6 +80,12 @@ class AgentConfig:
         str(_Y.get("agent", {}).get("enable_checklist", False)),
     ).lower() == "true"
     verbose: bool = os.environ.get("CODER_VERBOSE", "false").lower() == "true"
+    # added by Stream A — defaults only
+    doom_loop_threshold: int = int(_Y.get("agent", {}).get("doom_loop_threshold", 3))
+    # added by Stream A — defaults only
+    enable_approach_memory: bool = str(_Y.get("agent", {}).get("enable_approach_memory", False)).lower() == "true"
+    # added by Stream A — defaults only
+    memory_lookup_mode: str = _Y.get("agent", {}).get("memory_lookup_mode", "recency")
     workspace: Path = field(
         default_factory=lambda: Path(
             os.environ.get("CODER_WORKSPACE", str(_ROOT / "workspace"))
@@ -105,6 +111,16 @@ class ContextConfig:
         "CODER_COMPRESSION_STRATEGY",
         _Y.get("context", {}).get("compression_strategy", "rule_based"),
     )
+    # added by Stream A — defaults only
+    observation_compression_mode: str = _Y.get("context", {}).get("observation_compression_mode", "rule_based")
+    # added by Stream A — defaults only
+    history_compaction_mode: str = _Y.get("context", {}).get("history_compaction_mode", "rule_based")
+    # added by Stream A — defaults only
+    history_compaction_message_threshold: int = int(
+        _Y.get("context", {}).get("history_compaction_message_threshold", 20)
+    )
+    # added by Stream A — defaults only
+    keep_recent_turns: int = int(_Y.get("context", {}).get("keep_recent_turns", 6))
     context_window_tokens: int = 180_000
 
 

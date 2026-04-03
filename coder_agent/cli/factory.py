@@ -33,6 +33,8 @@ def invalid_preset_labels(labels: list[str]) -> list[str]:
 def make_agent(
     agent_config: dict | None = None,
     *,
+    experiment_config: dict | None = None,
+    config_label: str | None = None,
     model: str | None = None,
     no_memory: bool = False,
     experiment_id: str = "default",
@@ -41,20 +43,26 @@ def make_agent(
     if model:
         cfg.model.name = model
 
-    agent_config = agent_config or {}
-    memory_enabled = agent_config.get("memory", cfg.agent.enable_memory)
+    resolved_agent_config = dict(agent_config or {})
+    resolved_experiment_config = dict(experiment_config or {})
+    memory_enabled = resolved_agent_config.get("memory", cfg.agent.enable_memory)
     memory = None
     if not no_memory and memory_enabled:
-        memory = MemoryManager(cfg.agent.memory_db_path)
+        db_path = cfg.agent.memory_db_path
+        if config_label:
+            db_path = db_path.parent / f"agent_memory_{config_label}.db"
+        memory = MemoryManager(db_path)
 
-    return Agent(
+    agent = Agent(
         tools=build_tools(),
         client=LLMClient(),
         memory=memory,
         trajectory_store=trajectory_store,
         experiment_id=experiment_id,
-        experiment_config=agent_config,
+        experiment_config=resolved_agent_config,
     )
+    agent._experiment_config = resolved_experiment_config
+    return agent
 
 
 def make_trajectory_store(trajectory_dir: str | None) -> TrajectoryStore | None:
