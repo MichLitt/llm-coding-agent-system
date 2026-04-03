@@ -160,6 +160,7 @@ class EvalRunner:
                     f"Message: {exc}",
                     f"Traceback:\n{tb_summary[:1200]}",
                 ],
+                activation_counters={},
                 config_label=config_label,
             )
 
@@ -214,6 +215,7 @@ class EvalRunner:
             total_tokens=turn_result.total_tokens,
             duration=time.time() - start,
             error_types=error_types,
+            activation_counters=dict(getattr(turn_result, "extra", {}) or {}),
             config_label=config_label,
         )
 
