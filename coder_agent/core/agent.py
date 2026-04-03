@@ -44,13 +44,14 @@ class Agent:
         trajectory_store: TrajectoryStore | None = None,
         experiment_id: str = "default",
         experiment_config: dict | None = None,
+        runtime_config: dict[str, Any] | None = None,
     ):
         self._model_cfg = model_config or ModelConfig()
         self.tools = tools
         self.tool_dict = {tool.name: tool for tool in tools}
         self.experiment_id = experiment_id
         self.experiment_config = experiment_config or {}
-        self._experiment_config: dict[str, Any] = {}
+        self._experiment_config = dict(runtime_config or {})
         self.verbose = verbose
         self.client = client
         self.memory = memory
@@ -70,6 +71,7 @@ class Agent:
             system=self.system,
             context_window_tokens=self._model_cfg.context_window_tokens,
             client=client,
+            experiment_config=self._experiment_config,
         )
 
         enable_checklist = self.experiment_config.get("checklist", cfg.agent.enable_checklist)
@@ -97,6 +99,7 @@ class Agent:
             system=self.system,
             context_window_tokens=self._model_cfg.context_window_tokens,
             client=self.client,
+            experiment_config=self._experiment_config,
         )
         if self.decomposer is not None:
             from coder_agent.core.decomposer import Decomposer

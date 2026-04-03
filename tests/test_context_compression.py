@@ -2,7 +2,9 @@
 
 import pytest
 
+from coder_agent.core import Agent
 from coder_agent.core.context import MessageHistory, compress_observation
+from coder_agent.tools.base import Tool
 
 
 # ---------------------------------------------------------------------------
@@ -184,3 +186,48 @@ async def test_truncation_notice_keeps_lists_parallel():
     # The truncation notice is a user message — check its token entry is (0,0)
     if history.messages and history.messages[0].get("content") == "[Earlier history has been truncated.]":
         assert history.message_tokens[0] == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_add_message_uses_runtime_observation_compression_override(monkeypatch):
+    monkeypatch.setattr("coder_agent.core.context.cfg.context.observation_compression_mode", "rule_based")
+    history = MessageHistory(
+        model="test-model",
+        system="system prompt",
+        context_window_tokens=100_000,
+        client=None,
+        experiment_config={"observation_compression_mode": "smart"},
+    )
+    content = "\n".join(
+        [
+            "Exit code: 1",
+            *[f"test_ok_{i} PASSED" for i in range(12)],
+            "FAILED tests/test_demo.py::test_example - AssertionError: expected 1 == 2",
+            *[f"context line {i}" for i in range(5)],
+            "1 failed, 12 passed in 0.20s",
+        ]
+    )
+
+    await history.add_message("tool", content, tool_calls=[{"id": "c1"}])
+
+    stored = history.messages[0]["content"]
+    assert "[12 passing tests omitted]" in stored
+    assert "FAILED tests/test_demo.py::test_example" in stored
+    assert "1 failed, 12 passed in 0.20s" in stored
+
+
+class _DummyTool(Tool):
+    async def execute(self, **kwargs):
+        return {"content": "ok"}
+
+
+def test_agent_reset_preserves_runtime_context_overrides():
+    agent = Agent(
+        tools=[_DummyTool(name="dummy", description="dummy", input_schema={"type": "object"})],
+        client=None,
+        runtime_config={"observation_compression_mode": "smart"},
+    )
+
+    agent.reset()
+
+    assert agent.history.experiment_config["observation_compression_mode"] == "smart"
