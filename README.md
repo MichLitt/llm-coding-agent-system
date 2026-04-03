@@ -15,7 +15,7 @@ License: [MIT](./LICENSE).
 
 ## Current Status
 
-Version `0.4.0` is now the accepted same-code baseline for the current branch. The repo no longer uses historical `v8`/`v9` benchmark tables or the first `0.4.0` RC rerun as the default public story. The source of truth is the final artifact set produced on March 11, 2026 from the current codebase.
+Version `0.4.5` is the current release. The accepted v0.4.0 baseline was established on March 11, 2026 against a 21-task Custom suite. v0.4.3 expanded the Custom benchmark to 40 tasks and added MBPP support; the v0.4.0 baseline artifacts predate this expansion and are not directly comparable to runs on the current 40-task suite.
 
 Key points:
 
@@ -108,7 +108,7 @@ Exact commands, artifact naming, and release acceptance checks live in [REBASELI
 
 The current accepted `0.4.0` benchmark results are recorded in [BASELINE_0_4_0.md](./report/BASELINE_0_4_0.md).
 
-Final promoted artifacts:
+Final promoted artifacts (v0.4.0 baseline, Custom results against the original 21-task suite):
 
 - HumanEval primary: `humaneval_040_final_c6` -> `161/164 = 98.2%`
 - HumanEval supporting: `humaneval_040_final_c3` -> `157/164 = 95.7%`
@@ -116,6 +116,8 @@ Final promoted artifacts:
 - Custom supporting compare: `custom_040_final_cmp_C3` -> `20/21 = 95.2%`
 - Custom supporting memory compare: `custom_040_final_cmp_retry_C4` -> `20/21 = 95.2%`
 - Custom standalone memory reference: `custom_040_final_c4` -> `19/21 = 90.5%`
+
+> **Note:** The Custom benchmark was expanded from 21 to 40 tasks in v0.4.3. The above Custom results are from the pre-expansion suite and cannot be compared directly to runs on the current 40-task suite. New baselines against the 40-task suite have not yet been promoted.
 
 Important note:
 
