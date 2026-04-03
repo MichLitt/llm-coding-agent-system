@@ -3,11 +3,24 @@
 import asyncio
 import re
 import shutil
+from pathlib import PurePosixPath, PureWindowsPath
 
 from coder_agent.config import cfg
 from coder_agent.tools.base import Tool
 
 _WORKSPACE = cfg.agent.workspace
+
+
+def _validate_file_glob(file_glob: str) -> str | None:
+    if not file_glob or file_glob == "*":
+        return None
+    if PurePosixPath(file_glob).is_absolute() or PureWindowsPath(file_glob).is_absolute():
+        return (
+            "Error: file_glob must be a relative glob pattern (e.g. '*.py'), "
+            f"not an absolute path. Got: {file_glob!r}. "
+            "Use the path parameter to narrow the search directory instead."
+        )
+    return None
 
 
 class SearchCodeTool(Tool):
@@ -37,6 +50,9 @@ class SearchCodeTool(Tool):
             return "Error: path escapes workspace"
         if not root.exists():
             return f"Error: path not found: {path}"
+        file_glob_error = _validate_file_glob(file_glob)
+        if file_glob_error:
+            return file_glob_error
 
         rel_path = str(root.relative_to(_WORKSPACE))
 
@@ -74,16 +90,6 @@ class SearchCodeTool(Tool):
         except re.error as e:
             return f"Error: invalid regex: {e}"
 
-        # Validate file_glob before rglob: Python 3.12 raises NotImplementedError
-        # for absolute patterns (e.g. agent passes file_glob="/workspace/*.py").
-        if file_glob and file_glob != "*":
-            from pathlib import PurePosixPath
-            if PurePosixPath(file_glob).is_absolute():
-                return (
-                    "Error: file_glob must be a relative glob pattern (e.g. '*.py'), "
-                    f"not an absolute path. Got: {file_glob!r}. "
-                    "Use the path parameter to narrow the search directory instead."
-                )
         try:
             files = [root] if root.is_file() else list(root.rglob(file_glob or "*"))
         except NotImplementedError:
