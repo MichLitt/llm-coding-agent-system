@@ -1,5 +1,5 @@
 import dataclasses
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
 from coder_agent.config import cfg
@@ -35,6 +35,7 @@ class TurnResult:
     final_status: str = "failed"
     termination_reason: str | None = None
     error_details: list[str] = dataclasses.field(default_factory=list)
+    extra: dict = field(default_factory=dict)
 
 
 @dataclass

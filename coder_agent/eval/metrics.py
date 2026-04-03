@@ -21,6 +21,7 @@ class EvalResult:
     total_tokens: int = 0
     duration: float = 0.0
     error_types: list[str] = field(default_factory=list)
+    activation_counters: dict = field(default_factory=dict)
     config_label: str = ""
 
 

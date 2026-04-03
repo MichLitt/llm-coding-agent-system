@@ -11,6 +11,7 @@ from coder_agent.core.agent_run_context import (
     seed_run_context,
     start_trajectory,
 )
+from coder_agent.core.context import compress_observation
 from coder_agent.core.agent_tool_batch import (
     apply_retry_guidance,
     handle_tool_messages,
@@ -53,6 +54,13 @@ class LoopState:
     exception_stage: str = "init"
     awaiting_retry_verification: bool = False
     retry_edit_target: str | None = None
+    consecutive_identical_failures: int = 0
+    last_failing_call_sig: str | None = None
+    doom_loop_warnings_injected: int = 0
+    observations_compressed: int = 0
+    compaction_events: int = 0
+    tried_approaches: list[dict] = field(default_factory=list)
+    approach_memory_injections: int = 0
 
 
 @dataclass
@@ -106,6 +114,127 @@ class _TokenPrinter:
                 self.think_buf = self.think_buf[start + len("<think>") :]
 
 
+def _runtime_setting(agent: Any, key: str, default: Any) -> Any:
+    return getattr(agent, "_experiment_config", {}).get(key, default)
+
+
+def _tool_call_sig(tool_use: dict[str, Any]) -> str:
+    args = tool_use.get("input", {})
+    key_arg = args.get("cmd") or args.get("command") or args.get("path") or args.get("content", "")
+    return f"{tool_use['name']}:{str(key_arg)[:80]}"
+
+
+def _attach_activation_counters(result: TurnResult, state: LoopState) -> TurnResult:
+    result.extra["doom_loop_warnings_injected"] = state.doom_loop_warnings_injected
+    result.extra["observations_compressed"] = state.observations_compressed
+    result.extra["compaction_events"] = state.compaction_events
+    result.extra["approach_memory_injections"] = state.approach_memory_injections
+    return result
+
+
+def _remove_messages_with_prefix(history: Any, prefix: str) -> None:
+    kept_pairs = [
+        (
+            message,
+            history.message_tokens[index] if index < len(history.message_tokens) else (0, 0),
+        )
+        for index, message in enumerate(history.messages)
+        if not str(message.get("content", "")).startswith(prefix)
+    ]
+    history.messages = [message for message, _ in kept_pairs]
+    history.message_tokens = [tokens for _, tokens in kept_pairs]
+
+
+def _inject_approach_memory(agent: Any, state: LoopState) -> None:
+    sentinel = "[Memory/Approaches]"
+    _remove_messages_with_prefix(agent.history, sentinel)
+
+    lines = [f"{sentinel} Approaches already tried and failed in this task:"]
+    for index, approach in enumerate(state.tried_approaches, start=1):
+        tool_text = ", ".join(approach.get("tools", [])) or "unknown tools"
+        error_text = approach.get("error") or "unknown error"
+        observation_head = str(approach.get("observation_head", "")).strip()
+        lines.append(f"  {index}. {tool_text} -> {error_text}: {observation_head}")
+    lines.append("Do not repeat these. Use a different approach.")
+
+    agent.history.messages.insert(0, {"role": "user", "content": "\n".join(lines)})
+    agent.history.message_tokens.insert(0, (0, 0))
+
+
+async def _maybe_compact_history(agent: Any, state: LoopState) -> None:
+    msg_threshold = _runtime_setting(
+        agent,
+        "history_compaction_message_threshold",
+        cfg.context.history_compaction_message_threshold,
+    )
+    compaction_mode = _runtime_setting(
+        agent,
+        "history_compaction_mode",
+        cfg.context.history_compaction_mode,
+    )
+    if compaction_mode != "semantic" or len(agent.history.messages) <= msg_threshold:
+        return
+
+    state.exception_stage = "history.compact"
+    await agent.history.compact(
+        agent.client,
+        agent._params(),
+        keep_recent=cfg.context.keep_recent_turns,
+    )
+    state.exception_stage = None
+    state.compaction_events += 1
+
+
+def _count_compressed_observations(agent: Any, tool_results: list[dict[str, Any]]) -> int:
+    return sum(
+        1
+        for tool_result in tool_results
+        if compress_observation(
+            str(tool_result.get("content", "")),
+            getattr(agent, "_experiment_config", {}),
+        ).was_compressed
+    )
+
+
+async def _update_failure_tracking(agent: Any, state: LoopState, turn: ModelTurn, batch: ToolBatchSummary) -> None:
+    batch_has_error = batch.saw_nonzero_exit or batch.saw_recoverable_tool_error
+    if not batch_has_error:
+        state.consecutive_identical_failures = 0
+        state.last_failing_call_sig = None
+        return
+
+    sig = f"{sorted(_tool_call_sig(tool_use) for tool_use in turn.tool_uses)}:{batch.detected_error}"
+    if sig == state.last_failing_call_sig:
+        state.consecutive_identical_failures += 1
+    else:
+        state.consecutive_identical_failures = 1
+        state.last_failing_call_sig = sig
+
+    threshold = _runtime_setting(agent, "doom_loop_threshold", cfg.agent.doom_loop_threshold)
+    if threshold > 0 and state.consecutive_identical_failures == threshold:
+        warning = (
+            "[System] You have issued the same failing command "
+            f"{state.consecutive_identical_failures} times in a row without progress. "
+            "This approach is not working. Stop and try a fundamentally different strategy."
+        )
+        state.exception_stage = "history.add_doom_loop_warning"
+        await agent.history.add_message("user", warning)
+        state.doom_loop_warnings_injected += 1
+
+
+def _remember_failed_approach(state: LoopState, turn: ModelTurn, batch: ToolBatchSummary, observation: str) -> None:
+    if state.retry_count < 1:
+        return
+    state.tried_approaches.append(
+        {
+            "attempt": state.retry_count,
+            "tools": [tool_use["name"] for tool_use in turn.tool_uses],
+            "error": batch.detected_error,
+            "observation_head": observation[:200],
+        }
+    )
+
+
 async def run_agent_loop(
     agent: Any,
     user_input: str,
@@ -130,6 +259,14 @@ async def run_agent_loop(
             step_start = time.time()
             token_printer.reset()
             agent.history.truncate()
+            await _maybe_compact_history(agent, state)
+
+            if (
+                len(state.tried_approaches) >= 2
+                and _runtime_setting(agent, "enable_approach_memory", cfg.agent.enable_approach_memory)
+            ):
+                _inject_approach_memory(agent, state)
+                state.approach_memory_injections += 1
 
             await add_decomposer_progress(agent, state)
 
@@ -161,7 +298,7 @@ async def run_agent_loop(
                     step_start=step_start,
                 )
                 if completion_result is not None:
-                    return completion_result
+                    return _attach_activation_counters(completion_result, state)
                 continue
 
             retry_policy_feedback = check_retry_edit_policy(state, turn.tool_uses)
@@ -209,19 +346,26 @@ async def run_agent_loop(
                     error_type="ToolError",
                     is_retry=False,
                 )
-                return finalize_turn(
-                    agent,
+                return _attach_activation_counters(
+                    finalize_turn(
+                        agent,
+                        state,
+                        user_input=user_input,
+                        finalize_trajectory=finalize_trajectory,
+                        content=str(batch.hard_tool_exception.get("content", "Error: tool execution failed")),
+                        success=False,
+                        final_status="failed",
+                        termination_reason=TERMINATION_TOOL_EXCEPTION,
+                        error_details=[str(batch.hard_tool_exception.get("content", "Error: tool execution failed"))],
+                    ),
                     state,
-                    user_input=user_input,
-                    finalize_trajectory=finalize_trajectory,
-                    content=str(batch.hard_tool_exception.get("content", "Error: tool execution failed")),
-                    success=False,
-                    final_status="failed",
-                    termination_reason=TERMINATION_TOOL_EXCEPTION,
-                    error_details=[str(batch.hard_tool_exception.get("content", "Error: tool execution failed"))],
                 )
 
             combined_observation, correction_feedback = apply_retry_guidance(agent, state, batch)
+            await _update_failure_tracking(agent, state, turn, batch)
+            if batch.saw_nonzero_exit or batch.saw_recoverable_tool_error:
+                _remember_failed_approach(state, turn, batch, combined_observation)
+            state.observations_compressed += _count_compressed_observations(agent, batch.tool_results)
 
             verification_result = await handle_verification_auto_complete(
                 agent,
@@ -236,7 +380,7 @@ async def run_agent_loop(
                 step_start=step_start,
             )
             if verification_result is not None:
-                return verification_result
+                return _attach_activation_counters(verification_result, state)
 
             correction_enabled = agent.experiment_config.get("correction", cfg.agent.enable_correction)
             if batch.saw_nonzero_exit and not correction_enabled:
@@ -250,31 +394,37 @@ async def run_agent_loop(
                     error_type=batch.detected_error,
                     is_retry=False,
                 )
-                return finalize_turn(
-                    agent,
+                return _attach_activation_counters(
+                    finalize_turn(
+                        agent,
+                        state,
+                        user_input=user_input,
+                        finalize_trajectory=finalize_trajectory,
+                        content=combined_observation,
+                        success=False,
+                        final_status="failed",
+                        termination_reason=TERMINATION_TOOL_NONZERO_EXIT,
+                        error_details=batch.failure_parts,
+                    ),
                     state,
-                    user_input=user_input,
-                    finalize_trajectory=finalize_trajectory,
-                    content=combined_observation,
-                    success=False,
-                    final_status="failed",
-                    termination_reason=TERMINATION_TOOL_NONZERO_EXIT,
-                    error_details=batch.failure_parts,
                 )
 
             if state.retry_count > cfg.agent.max_retries:
-                return finalize_turn(
-                    agent,
+                return _attach_activation_counters(
+                    finalize_turn(
+                        agent,
+                        state,
+                        user_input=user_input,
+                        finalize_trajectory=finalize_trajectory,
+                        content=f"Error: max retries ({cfg.agent.max_retries}) exceeded for {state.last_error_type}",
+                        success=False,
+                        final_status="failed",
+                        termination_reason=TERMINATION_RETRY_EXHAUSTED,
+                        error_details=[
+                            f"Error: max retries ({cfg.agent.max_retries}) exceeded for {state.last_error_type}"
+                        ],
+                    ),
                     state,
-                    user_input=user_input,
-                    finalize_trajectory=finalize_trajectory,
-                    content=f"Error: max retries ({cfg.agent.max_retries}) exceeded for {state.last_error_type}",
-                    success=False,
-                    final_status="failed",
-                    termination_reason=TERMINATION_RETRY_EXHAUSTED,
-                    error_details=[
-                        f"Error: max retries ({cfg.agent.max_retries}) exceeded for {state.last_error_type}"
-                    ],
                 )
 
             record_trajectory_step(
@@ -317,26 +467,32 @@ async def run_agent_loop(
             error_type=type(exc).__name__,
             is_retry=False,
         )
-        return finalize_turn(
+        return _attach_activation_counters(
+            finalize_turn(
+                agent,
+                state,
+                user_input=user_input,
+                finalize_trajectory=finalize_trajectory,
+                content=error_summary,
+                success=False,
+                final_status="failed",
+                termination_reason=TERMINATION_LOOP_EXCEPTION,
+                error_details=[error_summary],
+            ),
+            state,
+        )
+
+    return _attach_activation_counters(
+        finalize_turn(
             agent,
             state,
             user_input=user_input,
             finalize_trajectory=finalize_trajectory,
-            content=error_summary,
+            content="Error: max steps reached",
             success=False,
-            final_status="failed",
-            termination_reason=TERMINATION_LOOP_EXCEPTION,
-            error_details=[error_summary],
-        )
-
-    return finalize_turn(
-        agent,
+            final_status="timeout",
+            termination_reason=TERMINATION_MAX_STEPS,
+            error_details=["Error: max steps reached"],
+        ),
         state,
-        user_input=user_input,
-        finalize_trajectory=finalize_trajectory,
-        content="Error: max steps reached",
-        success=False,
-        final_status="timeout",
-        termination_reason=TERMINATION_MAX_STEPS,
-        error_details=["Error: max steps reached"],
     )
