@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS task_history (
     success     INTEGER NOT NULL,
     steps       INTEGER NOT NULL,
     tool_calls  TEXT NOT NULL,
+    termination_reason TEXT,
+    error_summary TEXT,
     created_at  TIMESTAMP NOT NULL,
     FOREIGN KEY (project_id) REFERENCES projects(project_id)
 );
@@ -70,7 +72,18 @@ class MemoryManager:
 
     def init_db(self) -> None:
         self._conn.executescript(_SCHEMA)
+        self._migrate_task_history()
         self._conn.commit()
+
+    def _migrate_task_history(self) -> None:
+        existing_columns = {
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(task_history)").fetchall()
+        }
+        if "termination_reason" not in existing_columns:
+            self._conn.execute("ALTER TABLE task_history ADD COLUMN termination_reason TEXT")
+        if "error_summary" not in existing_columns:
+            self._conn.execute("ALTER TABLE task_history ADD COLUMN error_summary TEXT")
 
     # ------------------------------------------------------------------
     # Projects
@@ -101,18 +114,30 @@ class MemoryManager:
     def record_task(self, project_id: str, description: str, result: Any) -> None:
         task_id = uuid.uuid4().hex
         now = datetime.now(timezone.utc).isoformat()
+        error_details = getattr(result, "error_details", None) or []
+        error_summary = "\n".join(error_details)[:300] if error_details else None
         self._conn.execute(
             """INSERT INTO task_history
-               (task_id, project_id, description, success, steps, tool_calls, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (task_id, project_id, description, int(result.success), result.steps,
-             json.dumps(result.tool_calls), now),
+               (task_id, project_id, description, success, steps, tool_calls,
+                termination_reason, error_summary, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                task_id,
+                project_id,
+                description,
+                int(result.success),
+                result.steps,
+                json.dumps(result.tool_calls),
+                getattr(result, "termination_reason", None),
+                error_summary,
+                now,
+            ),
         )
         self._conn.commit()
 
     def get_recent_tasks(self, project_id: str, n: int = 5) -> list[dict[str, Any]]:
         rows = self._conn.execute(
-            """SELECT description, success, steps, tool_calls, created_at
+            """SELECT description, success, steps, tool_calls, termination_reason, error_summary, created_at
                FROM task_history WHERE project_id = ?
                ORDER BY created_at DESC LIMIT ?""",
             (project_id, n),
@@ -123,6 +148,8 @@ class MemoryManager:
                 "success": bool(r["success"]),
                 "steps": r["steps"],
                 "tool_calls": json.loads(r["tool_calls"]),
+                "termination_reason": r["termination_reason"],
+                "error_summary": r["error_summary"],
                 "created_at": r["created_at"],
             }
             for r in rows

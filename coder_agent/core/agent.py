@@ -171,12 +171,13 @@ class Agent:
         user_input: str,
         task_id: str = "",
         finalize_trajectory: bool = True,
+        record_memory: bool = True,
         verification_hook: VerificationHook | None = None,
         max_verification_attempts: int = 2,
         enforce_stop_verification: bool = True,
         auto_complete_on_verification: bool = False,
     ) -> TurnResult:
-        return await run_agent_loop(
+        result = await run_agent_loop(
             self,
             user_input,
             task_id=task_id,
@@ -187,12 +188,17 @@ class Agent:
             auto_complete_on_verification=auto_complete_on_verification,
             execute_tools_fn=execute_tools,
         )
+        if record_memory and self.memory:
+            project_id = self.memory.get_or_create_project(cfg.agent.workspace)
+            self.memory.record_task(project_id, user_input, result)
+        return result
 
     async def _run_with_cleanup(
         self,
         user_input: str,
         task_id: str = "",
         finalize_trajectory: bool = True,
+        record_memory: bool = True,
         verification_hook: VerificationHook | None = None,
         max_verification_attempts: int = 2,
         enforce_stop_verification: bool = True,
@@ -203,6 +209,7 @@ class Agent:
                 user_input,
                 task_id=task_id,
                 finalize_trajectory=finalize_trajectory,
+                record_memory=record_memory,
                 verification_hook=verification_hook,
                 max_verification_attempts=max_verification_attempts,
                 enforce_stop_verification=enforce_stop_verification,
@@ -217,22 +224,28 @@ class Agent:
         user_input: str,
         task_id: str = "",
         finalize_trajectory: bool = True,
+        record_memory: bool = True,
         verification_hook: VerificationHook | None = None,
         max_verification_attempts: int = 2,
         enforce_stop_verification: bool = True,
         auto_complete_on_verification: bool = False,
     ) -> TurnResult:
-        return asyncio.run(
+        result = asyncio.run(
             self._run_with_cleanup(
                 user_input,
                 task_id=task_id,
                 finalize_trajectory=finalize_trajectory,
+                record_memory=False,
                 verification_hook=verification_hook,
                 max_verification_attempts=max_verification_attempts,
                 enforce_stop_verification=enforce_stop_verification,
                 auto_complete_on_verification=auto_complete_on_verification,
             )
         )
+        if record_memory and self.memory:
+            project_id = self.memory.get_or_create_project(cfg.agent.workspace)
+            self.memory.record_task(project_id, user_input, result)
+        return result
 
 
 __all__ = [
