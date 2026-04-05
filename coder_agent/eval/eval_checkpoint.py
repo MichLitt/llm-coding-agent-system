@@ -1,4 +1,5 @@
 import json
+import hashlib
 import subprocess
 from dataclasses import asdict
 from pathlib import Path
@@ -64,12 +65,63 @@ def read_manifest(output_dir: Path, config_label: str) -> dict[str, Any]:
     return json.loads(manifest_path.read_text(encoding="utf-8"))
 
 
+def _run_git_command(args: list[str]) -> tuple[bool, str]:
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except Exception:
+        return False, ""
+    if result.returncode != 0:
+        return False, ""
+    return True, result.stdout.strip()
+
+
+def _normalize_snapshot(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _normalize_snapshot(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_snapshot(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
+    return value
+
+
+def _snapshot_sha256(value: Any) -> str:
+    payload = json.dumps(_normalize_snapshot(value), sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _git_snapshot() -> dict[str, Any]:
+    ok_full, full_commit = _run_git_command(["rev-parse", "HEAD"])
+    ok_short, short_commit = _run_git_command(["rev-parse", "--short", "HEAD"])
+    ok_status, status_porcelain = _run_git_command(["status", "--short"])
+    ok_untracked, untracked = _run_git_command(["ls-files", "--others", "--exclude-standard"])
+    ok_diff, tracked_diff = _run_git_command(["diff", "HEAD"])
+    untracked_files = sorted(line for line in untracked.splitlines() if line) if ok_untracked else []
+    status_text = status_porcelain if ok_status else ""
+    diff_text = tracked_diff if ok_diff else ""
+    return {
+        "git_commit": short_commit if ok_short else "unknown",
+        "git_commit_short": short_commit if ok_short else "unknown",
+        "git_commit_full": full_commit if ok_full else "unknown",
+        "git_is_dirty": bool(status_text),
+        "git_status_porcelain": status_text,
+        "git_diff_tracked_sha256": hashlib.sha256(diff_text.encode("utf-8")).hexdigest(),
+        "git_untracked_files": untracked_files,
+    }
+
+
 def write_run_manifest(
     output_dir: Path,
     config_label: str,
     *,
     benchmark_name: str,
     preset: str,
+    experiment_config_snapshot: dict[str, Any] | None,
     total_tasks: int,
     results: list[EvalResult],
     resume_enabled: bool,
@@ -77,16 +129,19 @@ def write_run_manifest(
     finished_at: float | None,
 ) -> None:
     _, _, manifest_path = result_paths(output_dir, config_label)
+    normalized_snapshot = _normalize_snapshot(experiment_config_snapshot or {})
     manifest = {
         "config_label": config_label or "results",
         "benchmark": benchmark_name,
         "preset": preset,
-        "git_commit": git_commit(),
+        **_git_snapshot(),
         "started_at": started_at,
         "finished_at": finished_at,
         "completed_task_ids": [result.task_id for result in results],
         "total_tasks": total_tasks,
         "resume_enabled": resume_enabled,
+        "experiment_config_snapshot": normalized_snapshot,
+        "experiment_config_sha256": _snapshot_sha256(normalized_snapshot),
     }
     manifest_path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False),
@@ -95,15 +150,4 @@ def write_run_manifest(
 
 
 def git_commit() -> str:
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except Exception:
-        pass
-    return "unknown"
+    return _git_snapshot()["git_commit"]

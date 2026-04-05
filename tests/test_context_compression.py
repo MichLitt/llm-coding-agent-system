@@ -23,7 +23,7 @@ def test_compress_observation_long_terminal_output_truncates_head():
     # 45 lines of terminal output (> _TERMINAL_THRESHOLD=40)
     lines = ["Exit code: 0"] + [f"line {i}" for i in range(44)]
     content = "\n".join(lines)
-    result = compress_observation(content)
+    result = compress_observation(content, experiment_config={"observation_compression_mode": "rule_based"})
     assert result.was_compressed is True
     assert "omitted" in result.content
     # tail lines are preserved
@@ -34,7 +34,7 @@ def test_compress_observation_long_file_content_keeps_head_and_tail():
     # 35 lines of file content (> _FILE_CONTENT_THRESHOLD=30)
     lines = [f"code line {i}" for i in range(35)]
     content = "\n".join(lines)
-    result = compress_observation(content)
+    result = compress_observation(content, experiment_config={"observation_compression_mode": "rule_based"})
     assert result.was_compressed is True
     assert "omitted" in result.content
     # head lines preserved
@@ -75,6 +75,15 @@ def _make_history(context_window_tokens: int = 100_000) -> MessageHistory:
         context_window_tokens=context_window_tokens,
         client=None,
     )
+
+
+class _SummaryClient:
+    async def chat(self, **kwargs):
+        return type(
+            "SummaryResponse",
+            (),
+            {"content": [type("Block", (), {"text": '{"current_state": "ok"}'})()]},
+        )()
 
 
 @pytest.mark.asyncio
@@ -214,6 +223,54 @@ async def test_add_message_uses_runtime_observation_compression_override(monkeyp
     assert "[12 passing tests omitted]" in stored
     assert "FAILED tests/test_demo.py::test_example" in stored
     assert "1 failed, 12 passed in 0.20s" in stored
+
+
+@pytest.mark.asyncio
+async def test_compact_moves_split_left_to_keep_tool_call_and_result_together():
+    history = MessageHistory(
+        model="test-model",
+        system="system prompt",
+        context_window_tokens=100_000,
+        client=_SummaryClient(),
+    )
+    history.messages = [
+        {"role": "user", "content": "task"},
+        {"role": "assistant", "content": "analysis"},
+        {"role": "user", "content": "more context"},
+        {"role": "assistant", "content": "calling tool", "tool_calls": [{"id": "call_1", "type": "function"}]},
+        {"role": "tool", "tool_call_id": "call_1", "content": "tool output"},
+        {"role": "assistant", "content": "done"},
+        {"role": "user", "content": "next"},
+    ]
+    history.message_tokens = [(0, 0)] * len(history.messages)
+
+    await history.compact(history.client, {"model": "test-model"}, keep_recent=3)
+
+    assert history.messages[0]["content"].startswith("[Context compacted")
+    assert history.messages[1]["role"] == "assistant"
+    assert history.messages[1]["tool_calls"][0]["id"] == "call_1"
+    assert history.messages[2]["role"] == "tool"
+
+
+@pytest.mark.asyncio
+async def test_compact_skips_when_only_unsafe_boundary_exists():
+    history = MessageHistory(
+        model="test-model",
+        system="system prompt",
+        context_window_tokens=100_000,
+        client=_SummaryClient(),
+    )
+    history.messages = [
+        {"role": "user", "content": "task"},
+        {"role": "assistant", "content": "calling tool", "tool_calls": [{"id": "call_1", "type": "function"}]},
+        {"role": "tool", "tool_call_id": "call_1", "content": "tool output"},
+    ]
+    history.message_tokens = [(0, 0)] * len(history.messages)
+
+    await history.compact(history.client, {"model": "test-model"}, keep_recent=1)
+
+    assert history.messages[0]["role"] == "user"
+    assert len(history.messages) == 3
 
 
 class _DummyTool(Tool):

@@ -51,6 +51,29 @@ def _context_setting(
     return getattr(cfg.context, key, default)
 
 
+def _is_tool_call_assistant(message: dict[str, Any]) -> bool:
+    return message.get("role") == "assistant" and bool(message.get("tool_calls"))
+
+
+def _is_tool_result(message: dict[str, Any]) -> bool:
+    return message.get("role") == "tool"
+
+
+def _find_safe_compaction_split(messages: list[dict[str, Any]], raw_split: int) -> int | None:
+    split_index = max(0, min(raw_split, len(messages)))
+    while split_index > 0:
+        previous = messages[split_index - 1]
+        current = messages[split_index] if split_index < len(messages) else None
+        if _is_tool_call_assistant(previous):
+            split_index -= 1
+            continue
+        if current is not None and _is_tool_result(current):
+            split_index -= 1
+            continue
+        return split_index
+    return None
+
+
 def _is_terminal_output(content: str) -> bool:
     if content.startswith("Exit code:"):
         return True
@@ -201,7 +224,9 @@ def compress_observation(
     if len(lines) <= _SHORT_THRESHOLD:
         return CompressionResult(content, False, original_chars, original_chars)
 
-    mode = _context_setting("observation_compression_mode", "rule_based", experiment_config)
+    mode = _context_setting("observation_compression_mode", "off", experiment_config)
+    if mode == "off":
+        return CompressionResult(content, False, original_chars, original_chars)
     if mode == "smart":
         if _is_terminal_output(content):
             compressed = _compress_terminal_smart(lines)
@@ -301,16 +326,15 @@ class MessageHistory:
         if len(self.messages) <= keep_recent:
             return
 
-        if keep_recent <= 0:
-            to_compress = self.messages
-            to_keep: list[dict[str, Any]] = []
-            tokens_to_compress = self.message_tokens
-            tokens_to_keep: list[tuple[int, int]] = []
-        else:
-            to_compress = self.messages[:-keep_recent]
-            to_keep = self.messages[-keep_recent:]
-            tokens_to_compress = self.message_tokens[:-keep_recent]
-            tokens_to_keep = self.message_tokens[-keep_recent:]
+        raw_split = len(self.messages) if keep_recent <= 0 else len(self.messages) - keep_recent
+        split_index = _find_safe_compaction_split(self.messages, raw_split)
+        if split_index is None or split_index <= 1:
+            return
+
+        to_compress = self.messages[:split_index]
+        to_keep = self.messages[split_index:]
+        tokens_to_compress = self.message_tokens[:split_index]
+        tokens_to_keep = self.message_tokens[split_index:]
 
         summary_response = await client.chat(
             messages=to_compress,

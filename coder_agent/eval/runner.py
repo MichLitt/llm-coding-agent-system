@@ -100,6 +100,7 @@ class EvalRunner:
         *,
         benchmark_name: str,
         preset: str,
+        agent_config: dict[str, Any] | None,
         total_tasks: int,
         results: list[EvalResult],
         resume_enabled: bool,
@@ -111,6 +112,11 @@ class EvalRunner:
             config_label,
             benchmark_name=benchmark_name,
             preset=preset,
+            experiment_config_snapshot={
+                "benchmark": benchmark_name,
+                "preset": preset,
+                "agent_config": agent_config or {},
+            },
             total_tasks=total_tasks,
             results=results,
             resume_enabled=resume_enabled,
@@ -139,6 +145,7 @@ class EvalRunner:
                 max_verification_attempts=task.verification_contract.get("max_attempts", 2),
                 enforce_stop_verification=(verification_hook is not None),
                 auto_complete_on_verification=verification_hook is not None,
+                max_steps=task.max_steps,
             )
         except Exception as exc:
             tb_summary = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).strip()
@@ -243,6 +250,7 @@ class EvalRunner:
             config_label,
             benchmark_name=benchmark_name,
             preset=preset,
+            agent_config=agent_config,
             total_tasks=len(tasks),
             results=results,
             resume_enabled=resume,
@@ -273,6 +281,7 @@ class EvalRunner:
                     config_label,
                     benchmark_name=benchmark_name,
                     preset=preset,
+                    agent_config=agent_config,
                     total_tasks=len(tasks),
                     results=results,
                     resume_enabled=resume,
@@ -288,6 +297,7 @@ class EvalRunner:
                 config_label,
                 benchmark_name=benchmark_name,
                 preset=preset,
+                agent_config=agent_config,
                 total_tasks=len(tasks),
                 results=results,
                 resume_enabled=resume,

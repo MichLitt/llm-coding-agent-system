@@ -6,6 +6,13 @@ import pytest
 
 from coder_agent.config import cfg
 from coder_agent.core import agent as agent_module
+from coder_agent.core.agent_loop import (
+    LoopState,
+    ModelTurn,
+    ToolBatchSummary,
+    _inject_approach_memory,
+    _update_failure_tracking,
+)
 from coder_agent.core.agent_errors import (
     build_error_guidance,
     classify_error,
@@ -761,3 +768,90 @@ async def test_seed_run_context_uses_similarity_lookup_and_formats_memory_prompt
     assert '[ERR] "fix async downloader timeout handling" (6 steps) - termination: retry_exhausted' in memory_messages[0]
     assert f"Summary: {error_summary[:100]}" in memory_messages[0]
     assert len(memory_messages[0]) <= 400
+    assert state.cross_task_memory_injected is True
+
+
+def test_inject_approach_memory_limits_entries_and_total_chars():
+    agent = _agent(FakeClient([]))
+    state = LoopState(cross_task_memory_injected=False)
+    state.tried_approaches = [
+        {
+            "tools": [f"tool_{index}"],
+            "error": f"AssertionError: failure {index} with a very long explanation",
+            "observation_head": "x" * 200,
+        }
+        for index in range(5)
+    ]
+
+    _inject_approach_memory(agent, state)
+
+    injection = agent.history.messages[0]["content"]
+    assert injection.startswith("[Memory/Approaches]")
+    assert "tool_0" not in injection
+    assert "tool_1" not in injection
+    assert "tool_2" in injection
+    assert "tool_4" in injection
+    assert len(injection) <= 400
+
+
+def test_inject_approach_memory_uses_tighter_budget_after_cross_task_memory():
+    agent = _agent(FakeClient([]))
+    state = LoopState(cross_task_memory_injected=True)
+    state.tried_approaches = [
+        {"tools": [f"tool_{index}"], "error": "AssertionError: boom", "observation_head": "obs"}
+        for index in range(4)
+    ]
+
+    _inject_approach_memory(agent, state)
+
+    injection = agent.history.messages[0]["content"]
+    assert "tool_1" not in injection
+    assert "tool_2" in injection
+    assert "tool_3" in injection
+
+
+@pytest.mark.asyncio
+async def test_doom_loop_uses_error_type_key_instead_of_full_error_text():
+    agent = SimpleNamespace(
+        _experiment_config={"doom_loop_threshold": 2},
+        history=SimpleNamespace(messages=[], message_tokens=[]),
+    )
+
+    async def add_message(role, content):
+        agent.history.messages.append({"role": role, "content": content})
+        agent.history.message_tokens.append((0, 0))
+
+    agent.history.add_message = add_message
+    state = LoopState()
+    turn = ModelTurn(
+        text_content="retry",
+        tool_uses=[{"id": "call_1", "name": "run_command", "input": {"command": "pytest -q"}}],
+        parse_errors=[],
+        parse_feedback="",
+    )
+    batch_one = ToolBatchSummary(
+        tool_results=[],
+        combined_observation="",
+        hard_tool_exception=None,
+        tool_error_messages=[],
+        saw_recoverable_tool_error=False,
+        saw_nonzero_exit=True,
+        failure_parts=[],
+        detected_error="AssertionError: expected 1 == 2",
+    )
+    batch_two = ToolBatchSummary(
+        tool_results=[],
+        combined_observation="",
+        hard_tool_exception=None,
+        tool_error_messages=[],
+        saw_recoverable_tool_error=False,
+        saw_nonzero_exit=True,
+        failure_parts=[],
+        detected_error="AssertionError: expected 3 == 4",
+    )
+
+    await _update_failure_tracking(agent, state, turn, batch_one)
+    await _update_failure_tracking(agent, state, turn, batch_two)
+
+    assert state.doom_loop_warnings_injected == 1
+    assert any("same failing command 2 times" in msg["content"] for msg in agent.history.messages)

@@ -176,6 +176,7 @@ class Agent:
         max_verification_attempts: int = 2,
         enforce_stop_verification: bool = True,
         auto_complete_on_verification: bool = False,
+        max_steps: int | None = None,
     ) -> TurnResult:
         result = await run_agent_loop(
             self,
@@ -186,6 +187,7 @@ class Agent:
             max_verification_attempts=max_verification_attempts,
             enforce_stop_verification=enforce_stop_verification,
             auto_complete_on_verification=auto_complete_on_verification,
+            max_steps=max_steps,
             execute_tools_fn=execute_tools,
         )
         if record_memory and self.memory:
@@ -203,6 +205,7 @@ class Agent:
         max_verification_attempts: int = 2,
         enforce_stop_verification: bool = True,
         auto_complete_on_verification: bool = False,
+        max_steps: int | None = None,
     ) -> TurnResult:
         try:
             return await self._loop(
@@ -214,6 +217,7 @@ class Agent:
                 max_verification_attempts=max_verification_attempts,
                 enforce_stop_verification=enforce_stop_verification,
                 auto_complete_on_verification=auto_complete_on_verification,
+                max_steps=max_steps,
             )
         finally:
             if self.client is not None and hasattr(self.client, "aclose"):
@@ -229,6 +233,7 @@ class Agent:
         max_verification_attempts: int = 2,
         enforce_stop_verification: bool = True,
         auto_complete_on_verification: bool = False,
+        max_steps: int | None = None,
     ) -> TurnResult:
         result = asyncio.run(
             self._run_with_cleanup(
@@ -240,6 +245,7 @@ class Agent:
                 max_verification_attempts=max_verification_attempts,
                 enforce_stop_verification=enforce_stop_verification,
                 auto_complete_on_verification=auto_complete_on_verification,
+                max_steps=max_steps,
             )
         )
         if record_memory and self.memory:

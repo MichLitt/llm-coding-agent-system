@@ -112,6 +112,8 @@ async def run_verification_hook(
 async def seed_run_context(agent: Any, state: Any, user_input: str) -> None:
     state.exception_stage = "history.add_user"
     await agent.history.add_message("user", user_input)
+    if not hasattr(state, "cross_task_memory_injected"):
+        state.cross_task_memory_injected = False
 
     if agent.decomposer is not None:
         state.exception_stage = "decomposer.decompose"
@@ -145,6 +147,7 @@ async def seed_run_context(agent: Any, state: Any, user_input: str) -> None:
                 if len(memory_prompt) > 400:
                     memory_prompt = memory_prompt[:397].rstrip() + "..."
                 await agent.history.add_message("user", memory_prompt)
+                state.cross_task_memory_injected = True
         else:
             recent = agent.memory.get_recent_tasks(state.project_id, n=3)
             if recent:
@@ -153,6 +156,7 @@ async def seed_run_context(agent: Any, state: Any, user_input: str) -> None:
                     status = "OK" if task["success"] else "ERR"
                     summary_lines.append(f"  {status} {task['description']} ({task['steps']} steps)")
                 await agent.history.add_message("user", "\n".join(summary_lines))
+                state.cross_task_memory_injected = True
 
 
 def start_trajectory(agent: Any, state: Any, *, user_input: str, task_id: str) -> None:

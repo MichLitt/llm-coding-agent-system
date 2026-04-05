@@ -81,7 +81,7 @@ class AgentConfig:
     ).lower() == "true"
     verbose: bool = os.environ.get("CODER_VERBOSE", "false").lower() == "true"
     # added by Stream A — defaults only
-    doom_loop_threshold: int = int(_Y.get("agent", {}).get("doom_loop_threshold", 3))
+    doom_loop_threshold: int = int(_Y.get("agent", {}).get("doom_loop_threshold", 2))
     # added by Stream A — defaults only
     enable_approach_memory: bool = str(_Y.get("agent", {}).get("enable_approach_memory", False)).lower() == "true"
     # added by Stream A — defaults only
@@ -112,7 +112,7 @@ class ContextConfig:
         _Y.get("context", {}).get("compression_strategy", "rule_based"),
     )
     # added by Stream A — defaults only
-    observation_compression_mode: str = _Y.get("context", {}).get("observation_compression_mode", "rule_based")
+    observation_compression_mode: str = _Y.get("context", {}).get("observation_compression_mode", "off")
     # added by Stream A — defaults only
     history_compaction_mode: str = _Y.get("context", {}).get("history_compaction_mode", "rule_based")
     # added by Stream A — defaults only

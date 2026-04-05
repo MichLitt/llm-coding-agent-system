@@ -28,6 +28,7 @@ context:
   max_tokens: 8000
   summary_threshold: 6000
   compression_strategy: rule_based  # rule_based / disabled
+  observation_compression_mode: "off"
 
 eval:
   output_dir: results/

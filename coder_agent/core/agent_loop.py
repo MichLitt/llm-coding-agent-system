@@ -61,6 +61,7 @@ class LoopState:
     compaction_events: int = 0
     tried_approaches: list[dict] = field(default_factory=list)
     approach_memory_injections: int = 0
+    cross_task_memory_injected: bool = False
 
 
 @dataclass
@@ -124,6 +125,13 @@ def _tool_call_sig(tool_use: dict[str, Any]) -> str:
     return f"{tool_use['name']}:{str(key_arg)[:80]}"
 
 
+def _error_type_key(detected_error: str | None) -> str:
+    if not detected_error:
+        return "none"
+    first_line = str(detected_error).split("\n", 1)[0]
+    return first_line.split(":", 1)[0].strip()[:60] or "none"
+
+
 def _attach_activation_counters(result: TurnResult, state: LoopState) -> TurnResult:
     result.extra["doom_loop_warnings_injected"] = state.doom_loop_warnings_injected
     result.extra["observations_compressed"] = state.observations_compressed
@@ -145,19 +153,34 @@ def _remove_messages_with_prefix(history: Any, prefix: str) -> None:
     history.message_tokens = [tokens for _, tokens in kept_pairs]
 
 
+def _single_line_excerpt(value: Any, *, limit: int) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
 def _inject_approach_memory(agent: Any, state: LoopState) -> None:
     sentinel = "[Memory/Approaches]"
     _remove_messages_with_prefix(agent.history, sentinel)
 
     lines = [f"{sentinel} Approaches already tried and failed in this task:"]
-    for index, approach in enumerate(state.tried_approaches, start=1):
+    max_entries = 2 if state.cross_task_memory_injected else 3
+    max_chars = 400
+    recent_approaches = state.tried_approaches[-max_entries:]
+    for index, approach in enumerate(recent_approaches, start=1):
         tool_text = ", ".join(approach.get("tools", [])) or "unknown tools"
-        error_text = approach.get("error") or "unknown error"
-        observation_head = str(approach.get("observation_head", "")).strip()
+        error_text = _single_line_excerpt(approach.get("error") or "unknown error", limit=120)
+        observation_head = _single_line_excerpt(approach.get("observation_head", ""), limit=80)
         lines.append(f"  {index}. {tool_text} -> {error_text}: {observation_head}")
     lines.append("Do not repeat these. Use a different approach.")
+    injection = "\n".join(lines)
+    if len(injection) > max_chars:
+        injection = injection[: max_chars - 3].rstrip() + "..."
 
-    agent.history.messages.insert(0, {"role": "user", "content": "\n".join(lines)})
+    agent.history.messages.insert(0, {"role": "user", "content": injection})
     agent.history.message_tokens.insert(0, (0, 0))
 
 
@@ -203,7 +226,7 @@ async def _update_failure_tracking(agent: Any, state: LoopState, turn: ModelTurn
         state.last_failing_call_sig = None
         return
 
-    sig = f"{sorted(_tool_call_sig(tool_use) for tool_use in turn.tool_uses)}:{batch.detected_error}"
+    sig = f"{sorted(_tool_call_sig(tool_use) for tool_use in turn.tool_uses)}:{_error_type_key(batch.detected_error)}"
     if sig == state.last_failing_call_sig:
         state.consecutive_identical_failures += 1
     else:
@@ -245,16 +268,18 @@ async def run_agent_loop(
     max_verification_attempts: int = 2,
     enforce_stop_verification: bool = True,
     auto_complete_on_verification: bool = False,
+    max_steps: int | None = None,
     execute_tools_fn: Callable[[list[dict[str, Any]], dict[str, Any]], Awaitable[list[dict[str, Any]]]],
 ) -> TurnResult:
     state = LoopState()
     token_printer = _TokenPrinter(agent)
+    effective_max_steps = max_steps if max_steps is not None else cfg.agent.max_steps
 
     await seed_run_context(agent, state, user_input)
     start_trajectory(agent, state, user_input=user_input, task_id=task_id)
 
     try:
-        for _ in range(cfg.agent.max_steps):
+        for _ in range(effective_max_steps):
             state.steps += 1
             step_start = time.time()
             token_printer.reset()

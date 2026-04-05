@@ -27,6 +27,7 @@ class DummyAgent:
         max_verification_attempts=2,
         enforce_stop_verification=True,
         auto_complete_on_verification=False,
+        max_steps=None,
     ):
         self.run_calls.append({
             "description": description,
@@ -35,6 +36,7 @@ class DummyAgent:
             "max_verification_attempts": max_verification_attempts,
             "enforce_stop_verification": enforce_stop_verification,
             "auto_complete_on_verification": auto_complete_on_verification,
+            "max_steps": max_steps,
         })
         return type("TurnResult", (), {
             "final_status": "success",
@@ -179,6 +181,16 @@ def test_run_task_routes_stop_gate_and_auto_complete_independently(tmp_path):
     assert no_gate_agent.run_calls[0]["auto_complete_on_verification"] is True
 
 
+def test_run_task_passes_task_level_max_steps(tmp_path):
+    task = TaskSpec(task_id="custom_task", description="fix task", max_steps=7)
+    agent = DummyAgent()
+    runner = EvalRunner(agent_factory=lambda _: agent, output_dir=tmp_path)
+
+    runner.run_task(task, agent, config_label="c6")
+
+    assert agent.run_calls[0]["max_steps"] == 7
+
+
 def test_run_suite_closes_agent_on_success(tmp_path):
     agent = DummyAgent()
     tasks = [TaskSpec(task_id="task_a", description="task_a")]
@@ -225,3 +237,40 @@ def test_run_suite_closes_agent_on_exception(tmp_path):
         )
 
     assert agent.close_calls == 1
+
+
+def test_run_suite_manifest_includes_git_and_config_fingerprints(tmp_path, monkeypatch):
+    from coder_agent.eval import eval_checkpoint
+
+    monkeypatch.setattr(
+        eval_checkpoint,
+        "_git_snapshot",
+        lambda: {
+            "git_commit": "abc1234",
+            "git_commit_short": "abc1234",
+            "git_commit_full": "abc1234567890",
+            "git_is_dirty": True,
+            "git_status_porcelain": " M coder_agent/core/context.py",
+            "git_diff_tracked_sha256": "diffhash",
+            "git_untracked_files": ["scratch.txt"],
+        },
+    )
+
+    tasks = [TaskSpec(task_id="task_a", description="task_a")]
+    runner = EvalRunner(agent_factory=lambda _: DummyAgent(), output_dir=tmp_path)
+    runner.run_suite(
+        tasks,
+        config_label="manifest_demo",
+        agent_config={"history_compaction_mode": "semantic"},
+        benchmark_name="custom",
+        preset="ctx3",
+        resume=False,
+        verbose=False,
+    )
+
+    manifest = (tmp_path / "manifest_demo_run_manifest.json").read_text(encoding="utf-8")
+    assert '"git_commit_full": "abc1234567890"' in manifest
+    assert '"git_is_dirty": true' in manifest
+    assert '"git_diff_tracked_sha256": "diffhash"' in manifest
+    assert '"experiment_config_sha256":' in manifest
+    assert '"history_compaction_mode": "semantic"' in manifest
