@@ -96,25 +96,38 @@ def test_normalize_messages_preserves_non_tool_result_blocks():
 
 
 # ---------------------------------------------------------------------------
-# LLMClient backend selection
+# LLMClient backend selection via LLMProfile
 # ---------------------------------------------------------------------------
 
-def test_llm_client_builds_anthropic_backend_when_format_is_anthropic():
-    with patch("coder_agent.core.llm_client.cfg") as mock_cfg:
-        mock_cfg.model.api_format = "anthropic"
-        mock_cfg.model.anthropic_api_key = "key"
-        mock_cfg.model.anthropic_base_url = "https://api.minimax.io/anthropic"
-        client = LLMClient()
+from coder_agent.config import LLMProfile
+
+
+def test_llm_client_builds_anthropic_backend_for_anthropic_transport():
+    profile = LLMProfile(
+        name="minimax_m27",
+        transport="anthropic",
+        model="MiniMax-M2.7",
+        api_key="test-key",
+        base_url="https://api.minimax.io/anthropic",
+    )
+    client = LLMClient(profile=profile)
     assert isinstance(client._backend, _AnthropicBackend)
+    assert client.profile.name == "minimax_m27"
+    assert client.profile.model == "MiniMax-M2.7"
 
 
-def test_llm_client_builds_openai_backend_when_format_is_openai():
-    with patch("coder_agent.core.llm_client.cfg") as mock_cfg:
-        mock_cfg.model.api_format = "openai"
-        mock_cfg.model.api_key = "key"
-        mock_cfg.model.base_url = "https://example.com"
-        client = LLMClient()
+def test_llm_client_builds_openai_backend_for_openai_transport():
+    profile = LLMProfile(
+        name="glm_5",
+        transport="openai",
+        model="glm-5",
+        api_key="test-key",
+        base_url="https://api.z.ai/api/paas/v4/",
+    )
+    client = LLMClient(profile=profile)
     assert isinstance(client._backend, _OpenAIBackend)
+    assert client.profile.name == "glm_5"
+    assert client.profile.model == "glm-5"
 
 
 # ---------------------------------------------------------------------------

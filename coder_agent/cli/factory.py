@@ -1,7 +1,9 @@
+from dataclasses import replace
 from pathlib import Path
 
-from coder_agent.config import cfg
+from coder_agent.config import cfg, resolve_llm_profile
 from coder_agent.core.agent import Agent, build_tools
+from coder_agent.core.agent_types import ModelConfig
 from coder_agent.core.llm_client import LLMClient
 from coder_agent.core.session import AgentSession
 from coder_agent.memory.manager import MemoryManager
@@ -36,12 +38,24 @@ def make_agent(
     experiment_config: dict | None = None,
     config_label: str | None = None,
     model: str | None = None,
+    llm_profile: str | None = None,
     no_memory: bool = False,
     experiment_id: str = "default",
     trajectory_store: TrajectoryStore | None = None,
 ) -> Agent:
+    # Resolve LLM profile — never mutates global cfg.model.*
+    resolved_profile = resolve_llm_profile(llm_profile)
     if model:
-        cfg.model.name = model
+        # --model overrides only the model name within this agent's profile
+        resolved_profile = replace(resolved_profile, model=model)
+
+    client = LLMClient(profile=resolved_profile)
+    model_cfg = ModelConfig(
+        model=resolved_profile.model,
+        max_tokens=cfg.model.max_tokens,
+        temperature=cfg.model.temperature,
+        context_window_tokens=cfg.context.context_window_tokens,
+    )
 
     resolved_agent_config = dict(agent_config or {})
     resolved_experiment_config = dict(experiment_config or {})
@@ -55,7 +69,8 @@ def make_agent(
 
     agent = Agent(
         tools=build_tools(),
-        client=LLMClient(),
+        client=client,
+        model_config=model_cfg,
         memory=memory,
         trajectory_store=trajectory_store,
         experiment_id=experiment_id,
@@ -74,6 +89,7 @@ def make_trajectory_store(trajectory_dir: str | None) -> TrajectoryStore | None:
 def make_session(
     *,
     model: str | None = None,
+    llm_profile: str | None = None,
     no_memory: bool = False,
     agent_config: dict | None = None,
 ) -> AgentSession:
@@ -81,6 +97,7 @@ def make_session(
         make_agent(
             agent_config=agent_config,
             model=model,
+            llm_profile=llm_profile,
             no_memory=no_memory,
         )
     )

@@ -142,6 +142,78 @@ class Config:
     eval: EvalConfig = field(default_factory=EvalConfig)
 
 
+# ---------------------------------------------------------------------------
+# Named LLM profile system
+# ---------------------------------------------------------------------------
+
+@dataclass
+class LLMProfile:
+    """Resolved, immutable LLM backend configuration for a single provider.
+
+    Consumers (LLMClient, Agent) carry their own LLMProfile instance and never
+    mutate the global cfg.model.* fields at runtime.
+    """
+
+    name: str
+    transport: str       # "openai" | "anthropic"
+    model: str
+    api_key: str
+    base_url: str | None
+
+
+def resolve_llm_profile(name: str | None = None) -> "LLMProfile":
+    """Resolve a named profile from config.yaml ``llm.profiles``.
+
+    Resolution order:
+      1. ``name`` argument (explicit override)
+      2. ``llm.default_profile`` in config.yaml
+      3. Legacy fallback: reads from the ``model:`` block for backward compat
+
+    Raises ValueError for unknown profile names.
+    """
+    llm_cfg = _Y.get("llm", {})
+    profiles: dict = llm_cfg.get("profiles", {})
+    profile_name = name or llm_cfg.get("default_profile")
+
+    # Legacy fallback — no llm.profiles in config.yaml
+    if not profiles or not profile_name:
+        _model = _Y.get("model", {})
+        transport = os.environ.get("CODER_API_FORMAT", _model.get("api_format", "anthropic"))
+        if transport == "anthropic":
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            base_url = os.environ.get("MINIMAX_ANTHROPIC_BASE_URL", "https://api.minimax.io/anthropic")
+        else:
+            api_key = os.environ.get("LLM_API_KEY", "")
+            base_url = os.environ.get("LLM_BASE_URL", "")
+        return LLMProfile(
+            name="legacy",
+            transport=transport,
+            model=os.environ.get("CODER_MODEL", _model.get("name", "MiniMax-M2.7")),
+            api_key=api_key,
+            base_url=base_url or None,
+        )
+
+    if profile_name not in profiles:
+        raise ValueError(
+            f"Unknown LLM profile: {profile_name!r}. "
+            f"Available profiles: {sorted(profiles)}"
+        )
+
+    raw = profiles[profile_name]
+    transport = raw["transport"]
+    api_key = os.environ.get(raw["api_key_env"], "")
+    base_url_env_val = os.environ.get(raw.get("base_url_env", ""), "")
+    base_url = base_url_env_val or raw.get("base_url_default") or None
+
+    return LLMProfile(
+        name=profile_name,
+        transport=transport,
+        model=raw["model"],
+        api_key=api_key,
+        base_url=base_url,
+    )
+
+
 def validate_config(config: "Config") -> None:
     """Fail fast with a clear message for obviously invalid config values."""
     if config.agent.max_steps < 1:

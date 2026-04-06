@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from coder_agent.config import cfg
+from coder_agent.config import cfg, resolve_llm_profile
 from coder_agent.eval.eval_checkpoint import (
     append_checkpoint_result,
     clear_run_artifacts,
@@ -70,11 +70,17 @@ class EvalRunner:
         agent_factory: Callable[[dict], Any],
         output_dir: Path | None = None,
         trajectory_dir: Path | None = None,
+        llm_profile_name: str | None = None,
     ):
         self.agent_factory = agent_factory
         self.output_dir = output_dir or cfg.eval.output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.trajectory_dir = trajectory_dir or cfg.eval.trajectory_dir
+        # Resolve LLM profile for manifest auditing
+        _profile = resolve_llm_profile(llm_profile_name)
+        self._llm_profile_name: str = _profile.name
+        self._llm_model: str = _profile.model
+        self._llm_transport: str = _profile.transport
 
     def _result_paths(self, config_label: str) -> tuple[Path, Path, Path]:
         return result_paths(self.output_dir, config_label)
@@ -120,6 +126,9 @@ class EvalRunner:
             resume_enabled=resume_enabled,
             started_at=started_at,
             finished_at=finished_at,
+            llm_profile_name=self._llm_profile_name,
+            llm_model=self._llm_model,
+            llm_transport=self._llm_transport,
         )
 
     def run_task(

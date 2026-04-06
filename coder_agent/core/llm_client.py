@@ -38,7 +38,7 @@ import anthropic
 import openai
 from openai import AsyncOpenAI
 
-from coder_agent.config import cfg
+from coder_agent.config import LLMProfile, resolve_llm_profile
 
 
 # ---------------------------------------------------------------------------
@@ -437,22 +437,27 @@ class _AnthropicBackend:
 # ---------------------------------------------------------------------------
 
 class LLMClient:
-    """Public facade: selects the correct backend based on cfg.model.api_format.
+    """Public facade: selects the correct backend based on the resolved LLMProfile.
+
+    Pass an explicit ``LLMProfile`` to bind this client to a specific provider.
+    If omitted, ``resolve_llm_profile()`` is called to derive the profile from
+    config.yaml and environment variables.
 
     The chat() interface is identical regardless of backend, so callers
-    (Agent, AgentSession) are unaffected by the format switch.
+    (Agent, AgentSession) are unaffected by the provider switch.
     """
 
-    def __init__(self) -> None:
-        if cfg.model.api_format == "anthropic":
+    def __init__(self, profile: LLMProfile | None = None) -> None:
+        self.profile: LLMProfile = profile if profile is not None else resolve_llm_profile()
+        if self.profile.transport == "anthropic":
             self._backend: _OpenAIBackend | _AnthropicBackend = _AnthropicBackend(
-                api_key=cfg.model.anthropic_api_key,
-                base_url=cfg.model.anthropic_base_url,
+                api_key=self.profile.api_key,
+                base_url=self.profile.base_url or "https://api.minimax.io/anthropic",
             )
         else:
             self._backend = _OpenAIBackend(
-                api_key=cfg.model.api_key,
-                base_url=cfg.model.base_url,
+                api_key=self.profile.api_key,
+                base_url=self.profile.base_url or "",
             )
 
     async def chat(

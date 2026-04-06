@@ -128,6 +128,9 @@ def write_run_manifest(
     resume_enabled: bool,
     started_at: float,
     finished_at: float | None,
+    llm_profile_name: str | None = None,
+    llm_model: str | None = None,
+    llm_transport: str | None = None,
 ) -> None:
     _, _, manifest_path = result_paths(output_dir, config_label)
     normalized_agent_config = _normalize_snapshot(agent_config_snapshot or {})
@@ -148,6 +151,9 @@ def write_run_manifest(
         "completed_task_ids": [result.task_id for result in results],
         "total_tasks": total_tasks,
         "resume_enabled": resume_enabled,
+        "llm_profile": llm_profile_name or "legacy",
+        "llm_model": llm_model,
+        "llm_transport": llm_transport,
         "agent_config_snapshot": normalized_agent_config,
         "agent_config_sha256": _snapshot_sha256(normalized_agent_config),
         "runtime_experiment_config_snapshot": normalized_runtime_config,
