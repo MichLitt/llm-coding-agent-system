@@ -9,6 +9,16 @@ from coder_agent.memory.trajectory import Step
 _OBSERVATION_MAX_CHARS = 500
 
 
+def _runtime_setting(agent: Any, key: str, default: Any) -> Any:
+    runtime_config = getattr(agent, "_experiment_config", {})
+    if key in runtime_config:
+        return runtime_config[key]
+    preset_config = getattr(agent, "experiment_config", {})
+    if key in preset_config:
+        return preset_config[key]
+    return default
+
+
 def record_trajectory_step(
     agent: Any,
     state: Any,
@@ -114,6 +124,10 @@ async def seed_run_context(agent: Any, state: Any, user_input: str) -> None:
     await agent.history.add_message("user", user_input)
     if not hasattr(state, "cross_task_memory_injected"):
         state.cross_task_memory_injected = False
+    if not hasattr(state, "memory_injections"):
+        state.memory_injections = 0
+    if not hasattr(state, "db_records_written"):
+        state.db_records_written = 0
 
     if agent.decomposer is not None:
         state.exception_stage = "decomposer.decompose"
@@ -129,7 +143,7 @@ async def seed_run_context(agent: Any, state: Any, user_input: str) -> None:
     if agent.memory:
         state.exception_stage = "memory.lookup"
         state.project_id = agent.memory.get_or_create_project(cfg.agent.workspace)
-        lookup_mode = agent.experiment_config.get("memory_lookup_mode", cfg.agent.memory_lookup_mode)
+        lookup_mode = _runtime_setting(agent, "memory_lookup_mode", cfg.agent.memory_lookup_mode)
         if lookup_mode == "similarity":
             similar = agent.memory.get_similar_tasks(state.project_id, user_input, n=3)
             if similar:
@@ -148,6 +162,7 @@ async def seed_run_context(agent: Any, state: Any, user_input: str) -> None:
                     memory_prompt = memory_prompt[:397].rstrip() + "..."
                 await agent.history.add_message("user", memory_prompt)
                 state.cross_task_memory_injected = True
+                state.memory_injections += 1
         else:
             recent = agent.memory.get_recent_tasks(state.project_id, n=3)
             if recent:
@@ -157,6 +172,7 @@ async def seed_run_context(agent: Any, state: Any, user_input: str) -> None:
                     summary_lines.append(f"  {status} {task['description']} ({task['steps']} steps)")
                 await agent.history.add_message("user", "\n".join(summary_lines))
                 state.cross_task_memory_injected = True
+                state.memory_injections += 1
 
 
 def start_trajectory(agent: Any, state: Any, *, user_input: str, task_id: str) -> None:

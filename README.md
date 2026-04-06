@@ -15,34 +15,37 @@ License: [MIT](./LICENSE).
 
 ## Current Status
 
-Version `0.4.5` is the current release. The accepted v0.4.0 baseline was established on March 11, 2026 against a 21-task Custom suite. v0.4.3 expanded the Custom benchmark to 40 tasks and added MBPP support; the v0.4.0 baseline artifacts predate this expansion and are not directly comparable to runs on the current 40-task suite.
+The current branch has an accepted `0.5.1` baseline on the 40-task Custom suite. Eval auditability and runtime-config plumbing are part of that accepted state, and the active source of truth is `report/BASELINE_0_5_1.md`. The older `0.4.0` promotion set remains archived historical context on the 21-task Custom suite.
 
 Key points:
 
 - The supported runtime path is an OpenAI-compatible backend configured with `LLM_API_KEY` and optional `LLM_BASE_URL`.
-- `model.provider` remains in config for compatibility, but is informational only in `0.4.0`.
+- `model.provider` remains in config for compatibility and is informational only at runtime.
 - The active day-to-day presets are `default`, `C3`, `C4`, and `C6`.
-- `C3`, `C4`, and `C6` are the only benchmark-candidate presets for `0.4.0`.
+- The active rebaseline docs are `BASELINE_0_5_1.md` and `REBASELINE_PLAYBOOK_0_5_1.md`.
+- Accepted `0.5.1` shipped benchmark lanes are `c4_m1_final` and `c6_baseline_final`.
+- Accepted supporting final compare lanes include `c4_m3_final`, `c6_ctx1_final`, `c6_ctx2_final`, `c6_ctx3_final`, and `c6_ctx_all_final`.
 - `C5` remains available for checklist experiments, but it is explicitly non-promoted.
 
 Recommended reading:
 
-- [BASELINE_0_4_0.md](./report/BASELINE_0_4_0.md)
-- [IMPROVEMENT_SUMMARY_0_4_0.md](./report/IMPROVEMENT_SUMMARY_0_4_0.md)
-- [REBASELINE_PLAYBOOK_0_4_0.md](./report/REBASELINE_PLAYBOOK_0_4_0.md)
-- [IMPROVEMENT_REPORT_v10.md](./report/IMPROVEMENT_REPORT_v10.md)
+- [BASELINE_0_5_1.md](./report/BASELINE_0_5_1.md)
+- [REBASELINE_PLAYBOOK_0_5_1.md](./report/REBASELINE_PLAYBOOK_0_5_1.md)
+- [IMPROVEMENT_REPORT_v0.5.1.md](./report/IMPROVEMENT_REPORT_v0.5.1.md)
+- [BASELINE_0_4_0.md](./report/BASELINE_0_4_0.md) - archived historical baseline on the 21-task suite
+- [REBASELINE_PLAYBOOK_0_4_0.md](./report/REBASELINE_PLAYBOOK_0_4_0.md) - archived historical playbook
 - [IMPROVEMENT_SUMMARY.md](./report/IMPROVEMENT_SUMMARY.md) - archived `0.3.0` summary
 - [BASELINE_0_4_0_RC.md](./report/BASELINE_0_4_0_RC.md) - archived RC baseline
 
 ### Preset Guidance
 
-| Preset | Primary use | 0.4.0 status |
+| Preset | Primary use | 0.5.1 cycle status |
 |--------|-------------|--------------|
 | `default` | Config-driven interactive use | Active |
-| `C3` | ReAct + correction baseline | Benchmark candidate |
-| `C4` | Multi-step tasks with memory | Benchmark candidate |
+| `C3` | ReAct + correction baseline | Supporting compare lane |
+| `C4` | Multi-step tasks with memory | Accepted shipped baseline lane |
 | `C5` | Checklist/decomposer experiments | Experimental |
-| `C6` | Verification-gated ReAct baseline | Benchmark candidate |
+| `C6` | Verification-gated ReAct baseline | Accepted shipped baseline lane |
 
 ## Quick Start
 
@@ -89,6 +92,13 @@ uv run python -m coder_agent run "Create a Flask API with user auth"
 uv run python -m coder_agent eval --benchmark custom --preset C4 --limit 1 --config-label demo
 ```
 
+Runtime experiment overrides can be passed as JSON and are captured in the run manifest:
+
+```bash
+uv run python -m coder_agent eval --benchmark custom --preset C4 --config-label demo \
+  --experiment-config '{"memory_lookup_mode":"similarity","keep_recent_turns":4}'
+```
+
 ### 5. Analyze an experiment
 
 ```bash
@@ -97,18 +107,19 @@ uv run python -m coder_agent analyze demo
 
 ## Evaluation and Re-Baselining
 
-The public `0.4.0` benchmark contract is:
+The active `0.5.1` rebaseline contract is:
 
-- run full `custom` and full `humaneval`
-- use `C3`, `C4`, and `C6` only for promoted `0.4.0` benchmark tables
-- cite final accepted artifacts by exact artifact name
-- keep release-candidate artifacts as archive/reference only
+- the required final Custom reruns have been completed
+- exact artifact names and matching manifests/trajectories are recorded in `report/BASELINE_0_5_1.md`
+- run manifests record both preset config and runtime experiment overrides
+- public reporting cites exact accepted artifact names
+- the `0.4.0` promotion set remains archive/reference only
 
-Exact commands, artifact naming, and release acceptance checks live in [REBASELINE_PLAYBOOK_0_4_0.md](./report/REBASELINE_PLAYBOOK_0_4_0.md).
+Exact commands, artifact naming, and release acceptance checks live in [REBASELINE_PLAYBOOK_0_5_1.md](./report/REBASELINE_PLAYBOOK_0_5_1.md).
 
-The current accepted `0.4.0` benchmark results are recorded in [BASELINE_0_4_0.md](./report/BASELINE_0_4_0.md).
+The current branch status is recorded in [BASELINE_0_5_1.md](./report/BASELINE_0_5_1.md).
 
-Final promoted artifacts (v0.4.0 baseline, Custom results against the original 21-task suite):
+Archived historical promoted artifacts (v0.4.0 baseline, Custom results against the original 21-task suite):
 
 - HumanEval primary: `humaneval_040_final_c6` -> `161/164 = 98.2%`
 - HumanEval supporting: `humaneval_040_final_c3` -> `157/164 = 95.7%`
@@ -117,7 +128,7 @@ Final promoted artifacts (v0.4.0 baseline, Custom results against the original 2
 - Custom supporting memory compare: `custom_040_final_cmp_retry_C4` -> `20/21 = 95.2%`
 - Custom standalone memory reference: `custom_040_final_c4` -> `19/21 = 90.5%`
 
-> **Note:** The Custom benchmark was expanded from 21 to 40 tasks in v0.4.3. The above Custom results are from the pre-expansion suite and cannot be compared directly to runs on the current 40-task suite. New baselines against the 40-task suite have not yet been promoted.
+> **Note:** The Custom benchmark was expanded from 21 to 40 tasks in v0.4.3. The above Custom results are historical archive data and cannot be compared directly to the accepted `0.5.1` reruns on the current 40-task suite.
 
 Important note:
 
@@ -131,6 +142,7 @@ Notes:
 
 - `results/`, `trajectories/`, and `memory/` are local runtime outputs and are ignored by Git.
 - For resumed runs, treat final `results/*.json` files as the metric source of truth.
+- `*_run_manifest.json` captures both the preset `agent_config` and any runtime `experiment_config` overrides.
 - Trajectory files are primarily for debugging, failure inspection, and taxonomy analysis.
 
 ## Repository Structure

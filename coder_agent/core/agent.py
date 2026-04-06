@@ -166,6 +166,13 @@ class Agent:
     ) -> str:
         return build_error_guidance(error_type, stderr_text, repeated=repeated)
 
+    def _record_memory_result(self, user_input: str, result: TurnResult) -> None:
+        if self.memory is None:
+            return
+        project_id = self.memory.get_or_create_project(cfg.agent.workspace)
+        self.memory.record_task(project_id, user_input, result)
+        result.extra["db_records_written"] = result.extra.get("db_records_written", 0) + 1
+
     async def _loop(
         self,
         user_input: str,
@@ -191,8 +198,7 @@ class Agent:
             execute_tools_fn=execute_tools,
         )
         if record_memory and self.memory:
-            project_id = self.memory.get_or_create_project(cfg.agent.workspace)
-            self.memory.record_task(project_id, user_input, result)
+            self._record_memory_result(user_input, result)
         return result
 
     async def _run_with_cleanup(
@@ -249,8 +255,7 @@ class Agent:
             )
         )
         if record_memory and self.memory:
-            project_id = self.memory.get_or_create_project(cfg.agent.workspace)
-            self.memory.record_task(project_id, user_input, result)
+            self._record_memory_result(user_input, result)
         return result
 
 

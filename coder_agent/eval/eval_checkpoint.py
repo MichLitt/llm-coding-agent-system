@@ -121,7 +121,8 @@ def write_run_manifest(
     *,
     benchmark_name: str,
     preset: str,
-    experiment_config_snapshot: dict[str, Any] | None,
+    agent_config_snapshot: dict[str, Any] | None,
+    runtime_experiment_config_snapshot: dict[str, Any] | None,
     total_tasks: int,
     results: list[EvalResult],
     resume_enabled: bool,
@@ -129,7 +130,14 @@ def write_run_manifest(
     finished_at: float | None,
 ) -> None:
     _, _, manifest_path = result_paths(output_dir, config_label)
-    normalized_snapshot = _normalize_snapshot(experiment_config_snapshot or {})
+    normalized_agent_config = _normalize_snapshot(agent_config_snapshot or {})
+    normalized_runtime_config = _normalize_snapshot(runtime_experiment_config_snapshot or {})
+    combined_snapshot = {
+        "benchmark": benchmark_name,
+        "preset": preset,
+        "agent_config": normalized_agent_config,
+        "experiment_config": normalized_runtime_config,
+    }
     manifest = {
         "config_label": config_label or "results",
         "benchmark": benchmark_name,
@@ -140,8 +148,12 @@ def write_run_manifest(
         "completed_task_ids": [result.task_id for result in results],
         "total_tasks": total_tasks,
         "resume_enabled": resume_enabled,
-        "experiment_config_snapshot": normalized_snapshot,
-        "experiment_config_sha256": _snapshot_sha256(normalized_snapshot),
+        "agent_config_snapshot": normalized_agent_config,
+        "agent_config_sha256": _snapshot_sha256(normalized_agent_config),
+        "runtime_experiment_config_snapshot": normalized_runtime_config,
+        "runtime_experiment_config_sha256": _snapshot_sha256(normalized_runtime_config),
+        "experiment_config_snapshot": combined_snapshot,
+        "experiment_config_sha256": _snapshot_sha256(combined_snapshot),
     }
     manifest_path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False),

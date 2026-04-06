@@ -12,6 +12,9 @@ agent:
   planning_mode: react
   enable_memory: false     # `C4` enables project memory for multi-step tasks
   enable_checklist: false  # `C5` remains experimental/non-promoted in 0.4.0
+  enable_approach_memory: true
+  memory_lookup_mode: recency
+  doom_loop_threshold: 2
 
 tools:
   terminal_timeout: 30
@@ -29,6 +32,9 @@ context:
   summary_threshold: 6000
   compression_strategy: rule_based  # rule_based / disabled
   observation_compression_mode: "off"
+  history_compaction_mode: "rule_based"
+  history_compaction_message_threshold: 20
+  keep_recent_turns: 6
 
 eval:
   output_dir: results/

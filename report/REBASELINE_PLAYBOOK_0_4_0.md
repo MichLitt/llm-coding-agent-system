@@ -1,5 +1,7 @@
 # Rebaseline Playbook 0.4.0
 
+> Archive note: this document is retained for the historical `0.4.0` promotion only. The active branch playbook is `report/REBASELINE_PLAYBOOK_0_5_1.md`.
+
 > Date: 2026-03-11
 > Scope: final accepted same-code baseline for `0.4.0`
 
@@ -90,6 +92,7 @@ Accepted interpretation:
 
 - Keep `results/*.json` as the metric source of truth.
 - Keep `*_run_manifest.json` files for resume and auditability.
+- Record both preset `agent_config` and runtime `experiment_config` overrides in each run manifest when experiment flags are used.
 - Keep matching `trajectories/*.jsonl` files for analysis and failure taxonomy.
 - Cite final artifacts by exact artifact name in README and public reports.
 - Keep `BASELINE_0_4_0_RC.md` as archive/reference only.

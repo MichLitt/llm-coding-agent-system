@@ -129,6 +129,7 @@ def run_ablation_command(
         CONFIG_PRESETS,
         presets=selected_presets,
         report_label="ablation",
+        experiment_config=parsed_experiment_config,
         benchmark_name=benchmark,
         resume=resume,
         verbose=True,

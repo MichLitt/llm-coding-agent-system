@@ -167,6 +167,7 @@ def _agent(
     client: FakeClient,
     experiment_config: dict | None = None,
     *,
+    runtime_config: dict | None = None,
     memory=None,
     trajectory_store=None,
 ) -> Agent:
@@ -182,6 +183,7 @@ def _agent(
         memory=memory,
         trajectory_store=trajectory_store,
         experiment_config=experiment_config or {},
+        runtime_config=runtime_config or {},
     )
 
 
@@ -213,6 +215,7 @@ def test_run_records_memory_when_trajectory_finalization_is_disabled():
     assert result.success is True
     assert len(memory.recorded) == 1
     assert memory.recorded[0][1] == "task"
+    assert result.extra["db_records_written"] == 1
     assert len(trajectory_store.started) == 1
     assert len(trajectory_store.finished) == 0
 
@@ -752,7 +755,7 @@ async def test_seed_run_context_uses_similarity_lookup_and_formats_memory_prompt
             }
         ]
     )
-    agent = _agent(FakeClient([]), {"memory_lookup_mode": "similarity"}, memory=memory)
+    agent = _agent(FakeClient([]), runtime_config={"memory_lookup_mode": "similarity"}, memory=memory)
     state = SimpleNamespace(exception_stage="init", project_id=None, traj_id=None)
 
     await seed_run_context(agent, state, "fix async coroutine bugs in downloader")
@@ -769,6 +772,36 @@ async def test_seed_run_context_uses_similarity_lookup_and_formats_memory_prompt
     assert f"Summary: {error_summary[:100]}" in memory_messages[0]
     assert len(memory_messages[0]) <= 400
     assert state.cross_task_memory_injected is True
+    assert state.memory_injections == 1
+
+
+@pytest.mark.asyncio
+async def test_seed_run_context_runtime_lookup_mode_overrides_preset_config():
+    memory = FakeMemory(
+        recent_tasks=[
+            {
+                "description": "recent task",
+                "success": True,
+                "steps": 2,
+                "tool_calls": ["run_command"],
+                "termination_reason": "verification_passed",
+                "error_summary": None,
+                "created_at": "2026-04-03T00:00:00+00:00",
+            }
+        ]
+    )
+    agent = _agent(
+        FakeClient([]),
+        {"memory_lookup_mode": "similarity"},
+        runtime_config={"memory_lookup_mode": "recency"},
+        memory=memory,
+    )
+    state = SimpleNamespace(exception_stage="init", project_id=None, traj_id=None)
+
+    await seed_run_context(agent, state, "fix downloader")
+
+    assert memory.recent_calls == [("project-1", 3)]
+    assert memory.similar_calls == []
 
 
 def test_inject_approach_memory_limits_entries_and_total_chars():

@@ -262,6 +262,7 @@ def test_run_suite_manifest_includes_git_and_config_fingerprints(tmp_path, monke
         tasks,
         config_label="manifest_demo",
         agent_config={"history_compaction_mode": "semantic"},
+        experiment_config={"memory_lookup_mode": "similarity"},
         benchmark_name="custom",
         preset="ctx3",
         resume=False,
@@ -272,5 +273,8 @@ def test_run_suite_manifest_includes_git_and_config_fingerprints(tmp_path, monke
     assert '"git_commit_full": "abc1234567890"' in manifest
     assert '"git_is_dirty": true' in manifest
     assert '"git_diff_tracked_sha256": "diffhash"' in manifest
+    assert '"agent_config_sha256":' in manifest
+    assert '"runtime_experiment_config_sha256":' in manifest
     assert '"experiment_config_sha256":' in manifest
     assert '"history_compaction_mode": "semantic"' in manifest
+    assert '"memory_lookup_mode": "similarity"' in manifest

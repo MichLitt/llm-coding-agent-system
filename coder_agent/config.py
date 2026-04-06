@@ -83,7 +83,7 @@ class AgentConfig:
     # added by Stream A — defaults only
     doom_loop_threshold: int = int(_Y.get("agent", {}).get("doom_loop_threshold", 2))
     # added by Stream A — defaults only
-    enable_approach_memory: bool = str(_Y.get("agent", {}).get("enable_approach_memory", False)).lower() == "true"
+    enable_approach_memory: bool = str(_Y.get("agent", {}).get("enable_approach_memory", True)).lower() == "true"
     # added by Stream A — defaults only
     memory_lookup_mode: str = _Y.get("agent", {}).get("memory_lookup_mode", "recency")
     workspace: Path = field(

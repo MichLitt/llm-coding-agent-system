@@ -122,3 +122,105 @@ def test_eval_rejects_unknown_task_ids(monkeypatch):
 
     assert result.exit_code != 0
     assert "Unknown task id(s): missing_task" in result.output
+
+
+def test_eval_rejects_invalid_experiment_config_json():
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        ["eval", "--experiment-config", "{bad json}"],
+    )
+
+    assert result.exit_code != 0
+    assert "Invalid JSON for --experiment-config" in result.output
+
+
+def test_eval_single_run_passes_config_label_and_experiment_config_to_make_agent(monkeypatch):
+    captured = {}
+
+    def fake_load_custom_tasks(tasks_file=None):
+        return [TaskSpec(task_id="task_a", description="task_a")]
+
+    def fake_make_agent(agent_cfg=None, **kwargs):
+        captured["agent_cfg"] = agent_cfg
+        captured["kwargs"] = kwargs
+        return object()
+
+    def fake_run_suite(self, tasks, **kwargs):
+        captured["task_ids"] = [task.task_id for task in tasks]
+        self.agent_factory(kwargs["agent_config"])
+        captured["run_suite_kwargs"] = kwargs
+
+    monkeypatch.setattr("coder_agent.eval.benchmarks.custom.loader.load_custom_tasks", fake_load_custom_tasks)
+    monkeypatch.setattr(eval_module, "make_agent", fake_make_agent)
+    monkeypatch.setattr(eval_module.EvalRunner, "run_suite", fake_run_suite)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "eval",
+            "--benchmark",
+            "custom",
+            "--preset",
+            "C4",
+            "--config-label",
+            "demo_run",
+            "--experiment-config",
+            '{"memory_lookup_mode":"similarity","keep_recent_turns":4}',
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["task_ids"] == ["task_a"]
+    assert captured["kwargs"]["config_label"] == "demo_run"
+    assert captured["kwargs"]["experiment_config"] == {
+        "memory_lookup_mode": "similarity",
+        "keep_recent_turns": 4,
+    }
+    assert captured["run_suite_kwargs"]["experiment_config"] == {
+        "memory_lookup_mode": "similarity",
+        "keep_recent_turns": 4,
+    }
+
+
+def test_eval_compare_uses_per_config_labels_for_make_agent(monkeypatch):
+    captured = []
+
+    def fake_load_custom_tasks(tasks_file=None):
+        return [TaskSpec(task_id="task_a", description="task_a")]
+
+    def fake_make_agent(agent_cfg=None, **kwargs):
+        captured.append((agent_cfg, kwargs))
+        return object()
+
+    def fake_compare_configs(self, tasks, configs, **kwargs):
+        for config in configs.values():
+            self.agent_factory(config)
+        return None
+
+    monkeypatch.setattr("coder_agent.eval.benchmarks.custom.loader.load_custom_tasks", fake_load_custom_tasks)
+    monkeypatch.setattr(eval_module, "make_agent", fake_make_agent)
+    monkeypatch.setattr(eval_module.EvalRunner, "compare_configs", fake_compare_configs)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "eval",
+            "--benchmark",
+            "custom",
+            "--compare",
+            "C3,C4",
+            "--config-label",
+            "batch",
+            "--experiment-config",
+            '{"memory_lookup_mode":"similarity"}',
+        ],
+    )
+
+    assert result.exit_code == 0
+    labels = [kwargs["config_label"] for _, kwargs in captured]
+    assert labels == ["batch_C3", "batch_C4"]
+    assert all(kwargs["experiment_config"] == {"memory_lookup_mode": "similarity"} for _, kwargs in captured)

@@ -62,6 +62,8 @@ class LoopState:
     tried_approaches: list[dict] = field(default_factory=list)
     approach_memory_injections: int = 0
     cross_task_memory_injected: bool = False
+    memory_injections: int = 0
+    db_records_written: int = 0
 
 
 @dataclass
@@ -137,6 +139,8 @@ def _attach_activation_counters(result: TurnResult, state: LoopState) -> TurnRes
     result.extra["observations_compressed"] = state.observations_compressed
     result.extra["compaction_events"] = state.compaction_events
     result.extra["approach_memory_injections"] = state.approach_memory_injections
+    result.extra["memory_injections"] = getattr(state, "memory_injections", 0)
+    result.extra["db_records_written"] = getattr(state, "db_records_written", 0)
     return result
 
 
@@ -198,11 +202,17 @@ async def _maybe_compact_history(agent: Any, state: LoopState) -> None:
     if compaction_mode != "semantic" or len(agent.history.messages) <= msg_threshold:
         return
 
+    keep_recent_turns = _runtime_setting(
+        agent,
+        "keep_recent_turns",
+        cfg.context.keep_recent_turns,
+    )
+
     state.exception_stage = "history.compact"
     await agent.history.compact(
         agent.client,
         agent._params(),
-        keep_recent=cfg.context.keep_recent_turns,
+        keep_recent=keep_recent_turns,
     )
     state.exception_stage = None
     state.compaction_events += 1
@@ -289,6 +299,7 @@ async def run_agent_loop(
             if (
                 len(state.tried_approaches) >= 2
                 and _runtime_setting(agent, "enable_approach_memory", cfg.agent.enable_approach_memory)
+                and agent.memory is not None
             ):
                 _inject_approach_memory(agent, state)
                 state.approach_memory_injections += 1
