@@ -12,6 +12,8 @@ trajectories/
 __pycache__/
 *.pyc
 *.db
+.DS_Store
+.vscode/
 
 # Scratch planning/eval notes under report/
 report/CoderAgent_Execution_Plan.md
