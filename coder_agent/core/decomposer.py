@@ -50,13 +50,11 @@ class Decomposer:
         Returns:
             Ordered list of sub-goal strings.
         """
-        from coder_agent.config import cfg
-
         result = await client.chat(
             messages=[{"role": "user", "content": task}],
             system=_DECOMPOSE_SYSTEM,
             tools=[],
-            model=cfg.model.name,
+            model=client.profile.model,
             max_tokens=512,
             temperature=0.0,
         )

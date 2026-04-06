@@ -56,7 +56,7 @@ uv sync
 cp .env.example .env
 ```
 
-Set `LLM_API_KEY` in `.env`. If your provider exposes an OpenAI-compatible endpoint at a custom URL, also set `LLM_BASE_URL`.
+Set the API key for your chosen profile in `.env` (see [LLM Profile Configuration](#llm-profile-configuration) below).
 
 ### 2. Start an interactive session
 
@@ -86,10 +86,23 @@ Available in-session commands:
 uv run python -m coder_agent run "Create a Flask API with user auth"
 ```
 
+Switch provider with `--llm-profile`:
+
+```bash
+uv run python -m coder_agent run "Create a Flask API" --llm-profile glm_5
+```
+
 ### 4. Run one benchmark task
 
 ```bash
 uv run python -m coder_agent eval --benchmark custom --preset C4 --limit 1 --config-label demo
+```
+
+Use a specific provider profile for an eval run:
+
+```bash
+uv run python -m coder_agent eval --benchmark custom --preset C4 --config-label demo_glm5 \
+  --llm-profile glm_5
 ```
 
 Runtime experiment overrides can be passed as JSON and are captured in the run manifest:
@@ -104,6 +117,63 @@ uv run python -m coder_agent eval --benchmark custom --preset C4 --config-label 
 ```bash
 uv run python -m coder_agent analyze demo
 ```
+
+## LLM Profile Configuration
+
+As of v0.5.2, provider configuration is managed through named profiles in `config.yaml`. This replaces the previous single-backend `model:` block.
+
+### Defining profiles
+
+`config.yaml` ships with three profiles:
+
+| Profile | Transport | Model |
+|---|---|---|
+| `minimax_m27` | anthropic | MiniMax-M2.7 |
+| `minimax_m25` | openai | MiniMax-M2.5 |
+| `glm_5` | openai | glm-5 |
+
+### Environment variables
+
+Each profile reads its credentials from dedicated env vars. Copy `.env.example` to `.env` and fill in the keys for the profiles you use:
+
+```bash
+# minimax_m27 (default profile)
+LLM_MINIMAX_M27_API_KEY=your_key_here
+# LLM_MINIMAX_M27_BASE_URL=https://api.minimax.io/anthropic  # optional, this is the default
+
+# glm_5
+LLM_GLM_5_API_KEY=your_key_here
+LLM_GLM_5_BASE_URL=https://api.z.ai/api/paas/v4/
+```
+
+### Switching profiles
+
+All CLI commands accept `--llm-profile`:
+
+```bash
+uv run python -m coder_agent run "fix the bug" --llm-profile glm_5
+uv run python -m coder_agent chat --llm-profile minimax_m25
+uv run python -m coder_agent eval --preset C4 --llm-profile glm_5 --config-label c4_glm5_smoke
+```
+
+The selected profile (name, model, transport) is recorded in every eval run manifest under `llm_profile`, `llm_model`, and `llm_transport` fields.
+
+### Adding a new profile
+
+Add an entry to `config.yaml` under `llm.profiles`:
+
+```yaml
+llm:
+  default_profile: minimax_m27
+  profiles:
+    my_provider:
+      transport: openai          # "openai" or "anthropic"
+      model: my-model-name
+      api_key_env: LLM_MY_PROVIDER_API_KEY
+      base_url_env: LLM_MY_PROVIDER_BASE_URL
+```
+
+Then add the corresponding vars to `.env` and use `--llm-profile my_provider`.
 
 ## Evaluation and Re-Baselining
 

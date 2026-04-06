@@ -6,6 +6,34 @@ model:
   max_tokens: 8192
   seed: 42
 
+# Named LLM profiles — preferred over the legacy model: block above.
+# Each profile declares transport (openai|anthropic), model name, and env var
+# names for API key and base URL.  Set llm.default_profile to choose which
+# profile is used when --llm-profile is not specified on the CLI.
+llm:
+  default_profile: minimax_m27
+
+  profiles:
+    minimax_m27:
+      transport: anthropic
+      model: MiniMax-M2.7
+      api_key_env: LLM_MINIMAX_M27_API_KEY
+      base_url_env: LLM_MINIMAX_M27_BASE_URL
+      base_url_default: https://api.minimax.io/anthropic
+
+    minimax_m25:
+      transport: openai
+      model: MiniMax-M2.5
+      api_key_env: LLM_MINIMAX_M25_API_KEY
+      base_url_env: LLM_MINIMAX_M25_BASE_URL
+
+    glm_5:
+      transport: openai
+      model: glm-5.1
+      api_key_env: LLM_GLM_5_API_KEY
+      base_url_env: LLM_GLM_5_BASE_URL
+      base_url_default: https://api.z.ai/api/coding/paas/v4
+
 agent:
   max_steps: 15
   max_retries: 3

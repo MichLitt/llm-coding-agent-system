@@ -39,6 +39,7 @@ from .factory import (
     default=None,
     help='JSON object passed to make_agent() as runtime experiment config, e.g. \'{"memory_lookup_mode": "similarity"}\'.',
 )
+@click.option("--llm-profile", default=None, help="Named LLM profile from config.yaml llm.profiles")
 def eval_command(
     benchmark: str,
     task_dir: str | None,
@@ -50,6 +51,7 @@ def eval_command(
     resume: bool,
     config_label: str,
     experiment_config: str | None,
+    llm_profile: str | None,
 ) -> None:
     if compare and preset != "default":
         raise click.UsageError("--compare and --preset are mutually exclusive")
@@ -65,9 +67,10 @@ def eval_command(
             trajectory_store=tstore,
             config_label=config_label,
             experiment_config=parsed_experiment_config,
+            llm_profile=llm_profile,
         )
 
-    runner = EvalRunner(agent_factory=agent_factory, output_dir=output_dir)
+    runner = EvalRunner(agent_factory=agent_factory, output_dir=output_dir, llm_profile_name=llm_profile)
 
     if benchmark == "humaneval":
         from coder_agent.eval.benchmarks.humaneval import HumanEvalBenchmark
@@ -134,9 +137,10 @@ def eval_command(
                 trajectory_store=tstore,
                 config_label=experiment_id,
                 experiment_config=parsed_experiment_config,
+                llm_profile=llm_profile,
             )
 
-        runner_cmp = EvalRunner(agent_factory=agent_factory_compare, output_dir=output_dir)
+        runner_cmp = EvalRunner(agent_factory=agent_factory_compare, output_dir=output_dir, llm_profile_name=llm_profile)
         runner_cmp.compare_configs(
             tasks,
             configs,

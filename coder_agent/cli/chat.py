@@ -103,7 +103,8 @@ def run_chat_repl(
 @click.command()
 @click.option("--model", default=None, help="Override model name from config.yaml")
 @click.option("--no-memory", is_flag=True, help="Disable long-term memory")
-def chat(model: str | None, no_memory: bool) -> None:
+@click.option("--llm-profile", default=None, help="Named LLM profile from config.yaml llm.profiles")
+def chat(model: str | None, no_memory: bool, llm_profile: str | None) -> None:
     from coder_agent.cli.factory import make_session
 
-    run_chat_repl(make_session(model=model, no_memory=no_memory), stdin=sys.stdin)
+    run_chat_repl(make_session(model=model, no_memory=no_memory, llm_profile=llm_profile), stdin=sys.stdin)
