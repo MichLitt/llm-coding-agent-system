@@ -35,6 +35,7 @@ def invalid_preset_labels(labels: list[str]) -> list[str]:
 def make_agent(
     agent_config: dict | None = None,
     *,
+    workspace: Path | None = None,
     experiment_config: dict | None = None,
     config_label: str | None = None,
     model: str | None = None,
@@ -59,6 +60,7 @@ def make_agent(
 
     resolved_agent_config = dict(agent_config or {})
     resolved_experiment_config = dict(experiment_config or {})
+    resolved_workspace = Path(workspace or cfg.agent.workspace).resolve()
     memory_enabled = resolved_agent_config.get("memory", cfg.agent.enable_memory)
     memory = None
     if not no_memory and memory_enabled:
@@ -68,7 +70,7 @@ def make_agent(
         memory = MemoryManager(db_path)
 
     agent = Agent(
-        tools=build_tools(),
+        tools=build_tools(resolved_workspace),
         client=client,
         model_config=model_cfg,
         memory=memory,
@@ -76,6 +78,7 @@ def make_agent(
         experiment_id=experiment_id,
         experiment_config=resolved_agent_config,
         runtime_config=resolved_experiment_config,
+        workspace=resolved_workspace,
     )
     return agent
 

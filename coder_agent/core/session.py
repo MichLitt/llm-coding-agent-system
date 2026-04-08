@@ -34,7 +34,7 @@ class AgentSession:
     def session_metadata(self) -> SessionMetadata:
         return SessionMetadata(
             model=getattr(self.agent, "_model_cfg").model,
-            workspace=str(cfg.agent.workspace),
+            workspace=str(getattr(self.agent, "workspace", cfg.agent.workspace)),
             memory_enabled=getattr(self.agent, "memory", None) is not None,
             turns=self.turns,
         )

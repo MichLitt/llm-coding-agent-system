@@ -1,4 +1,5 @@
 import importlib
+from pathlib import Path
 
 from click.testing import CliRunner
 
@@ -81,6 +82,32 @@ def test_eval_filters_custom_tasks_by_task_id(monkeypatch):
     assert captured["task_ids"] == ["task_b", "task_c"]
 
 
+def test_eval_loads_swebench_subset(monkeypatch):
+    captured = {}
+
+    def fake_load_swebench_tasks(subset="smoke"):
+        captured["subset"] = subset
+        return [TaskSpec(task_id="swe_task", description="demo", metadata={"benchmark": "swebench"})]
+
+    def fake_run_suite(self, tasks, **kwargs):
+        captured["task_ids"] = [task.task_id for task in tasks]
+        captured["benchmark_name"] = kwargs["benchmark_name"]
+
+    monkeypatch.setattr("coder_agent.eval.benchmarks.swebench.loader.load_swebench_tasks", fake_load_swebench_tasks)
+    monkeypatch.setattr(eval_module.EvalRunner, "run_suite", fake_run_suite)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["eval", "--benchmark", "swebench", "--swebench-subset", "promoted", "--preset", "C3"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["subset"] == "promoted"
+    assert captured["task_ids"] == ["swe_task"]
+    assert captured["benchmark_name"] == "swebench"
+
+
 def test_eval_filters_compare_tasks_by_task_id(monkeypatch):
     captured = {}
 
@@ -149,7 +176,7 @@ def test_eval_single_run_passes_config_label_and_experiment_config_to_make_agent
 
     def fake_run_suite(self, tasks, **kwargs):
         captured["task_ids"] = [task.task_id for task in tasks]
-        self.agent_factory(kwargs["agent_config"])
+        self.agent_factory(kwargs["agent_config"], Path("/tmp/demo-workspace"))
         captured["run_suite_kwargs"] = kwargs
 
     monkeypatch.setattr("coder_agent.eval.benchmarks.custom.loader.load_custom_tasks", fake_load_custom_tasks)
@@ -175,6 +202,7 @@ def test_eval_single_run_passes_config_label_and_experiment_config_to_make_agent
     assert result.exit_code == 0
     assert captured["task_ids"] == ["task_a"]
     assert captured["kwargs"]["config_label"] == "demo_run"
+    assert captured["kwargs"]["workspace"] == Path("/tmp/demo-workspace")
     assert captured["kwargs"]["experiment_config"] == {
         "memory_lookup_mode": "similarity",
         "keep_recent_turns": 4,
@@ -197,7 +225,7 @@ def test_eval_compare_uses_per_config_labels_for_make_agent(monkeypatch):
 
     def fake_compare_configs(self, tasks, configs, **kwargs):
         for config in configs.values():
-            self.agent_factory(config)
+            self.agent_factory(config, Path("/tmp/demo-workspace"))
         return None
 
     monkeypatch.setattr("coder_agent.eval.benchmarks.custom.loader.load_custom_tasks", fake_load_custom_tasks)
@@ -223,4 +251,5 @@ def test_eval_compare_uses_per_config_labels_for_make_agent(monkeypatch):
     assert result.exit_code == 0
     labels = [kwargs["config_label"] for _, kwargs in captured]
     assert labels == ["batch_C3", "batch_C4"]
+    assert all(kwargs["workspace"] == Path("/tmp/demo-workspace") for _, kwargs in captured)
     assert all(kwargs["experiment_config"] == {"memory_lookup_mode": "similarity"} for _, kwargs in captured)

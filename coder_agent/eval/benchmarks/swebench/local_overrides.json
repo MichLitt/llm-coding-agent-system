@@ -1,0 +1,69 @@
+{
+  "manifest_version": 1,
+  "overrides": [
+    {
+      "instance_id": "pylint-dev__pylint-5859",
+      "subset": "smoke",
+      "python_version": "3.10",
+      "setup_commands": [
+        "uv venv --python {python_version} .swebench-venv",
+        "uv pip install --python .swebench-venv/bin/python -r requirements_test_min.txt"
+      ],
+      "test_command_override": "python -m pytest -q -p no:benchmark tests/checkers/unittest_misc.py",
+      "expected_patch_targets": [
+        "pylint/checkers/misc.py",
+        "tests/checkers/unittest_misc.py"
+      ],
+      "max_steps": 16
+    },
+    {
+      "instance_id": "sympy__sympy-22005",
+      "subset": "promoted",
+      "python_version": "3.10",
+      "setup_commands": [
+        "uv venv --python {python_version} .swebench-venv",
+        "uv pip install --python .swebench-venv/bin/python -e .",
+        "uv pip install --python .swebench-venv/bin/python pytest"
+      ],
+      "test_command_override": "python -m pytest -q",
+      "expected_patch_targets": [
+        "sympy/solvers/polysys.py",
+        "sympy/solvers/tests/test_polysys.py"
+      ],
+      "max_steps": 18
+    },
+    {
+      "instance_id": "pytest-dev__pytest-7220",
+      "subset": "promoted",
+      "python_version": "3.9",
+      "setup_commands": [
+        "uv venv --python {python_version} .swebench-venv",
+        "uv pip install --python .swebench-venv/bin/python -e .",
+        "uv pip install --python .swebench-venv/bin/python pytest xmlschema hypothesis"
+      ],
+      "test_command_override": "python -m pytest -q testing/test_nodes.py",
+      "expected_patch_targets": [
+        "src/_pytest/nodes.py",
+        "testing/test_nodes.py"
+      ],
+      "max_steps": 18
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-8273",
+      "subset": "promoted",
+      "python_version": "3.10",
+      "setup_commands": [
+        "uv venv --python {python_version} .swebench-venv",
+        "uv pip install --python .swebench-venv/bin/python -e .",
+        "uv pip install --python .swebench-venv/bin/python pytest",
+        "uv pip install --python .swebench-venv/bin/python 'setuptools<81' 'jinja2<3.1'"
+      ],
+      "test_command_override": "python -m pytest -q tests/test_build_manpage.py",
+      "expected_patch_targets": [
+        "sphinx/builders/manpage.py",
+        "tests/test_build_manpage.py"
+      ],
+      "max_steps": 18
+    }
+  ]
+}

@@ -7,7 +7,7 @@ from coder_agent.core.agent import VerificationResult
 
 
 def expected_checks(task: Any) -> int:
-    if task.metadata.get("benchmark") in ("humaneval", "mbpp"):
+    if task.metadata.get("benchmark") in ("humaneval", "mbpp", "swebench"):
         return 1
     return max(1, len(task.verification))
 
@@ -138,6 +138,69 @@ def verify_mbpp(task: Any, workspace: Path) -> VerificationResult:
     return VerificationResult(False, f"Official MBPP verification failed. {summary}")
 
 
+def run_swebench_check(task: Any, workspace: Path) -> tuple[int, str | None]:
+    from coder_agent.eval.benchmarks.swebench.adapter import (
+        extract_patch,
+        run_swebench_test_command,
+        verification_overlay,
+        write_patch_artifact,
+    )
+
+    patch_text = extract_patch(workspace)
+    write_patch_artifact(workspace, patch_text)
+
+    test_command = str(task.metadata.get("test_command", "")).strip()
+    if not test_command:
+        return 0, "SWE-bench metadata missing test_command"
+
+    fail_to_pass = [str(item) for item in task.metadata.get("fail_to_pass", []) if str(item).strip()]
+    pass_to_pass = [str(item) for item in task.metadata.get("pass_to_pass", []) if str(item).strip()]
+    test_patch = str(task.metadata.get("test_patch", "") or "")
+
+    try:
+        with verification_overlay(workspace, test_patch=test_patch):
+            suite_passed, suite_message = run_swebench_test_command(test_command, workspace)
+
+            if not fail_to_pass and not pass_to_pass:
+                if suite_passed:
+                    return 1, None
+                return 0, suite_message or "SWE-bench verification failed"
+
+            missing_fail_to_pass: list[str] = []
+            broken_pass_to_pass: list[str] = []
+            for test_id in fail_to_pass:
+                passed, _ = run_swebench_test_command(test_command, workspace, test_targets=[test_id])
+                if not passed:
+                    missing_fail_to_pass.append(test_id)
+            for test_id in pass_to_pass:
+                passed, _ = run_swebench_test_command(test_command, workspace, test_targets=[test_id])
+                if not passed:
+                    broken_pass_to_pass.append(test_id)
+
+            if suite_passed and not missing_fail_to_pass and not broken_pass_to_pass:
+                return 1, None
+
+            reasons: list[str] = []
+            if not suite_passed:
+                reasons.append(f"full test command failed: {suite_message or 'non-zero exit'}")
+            if missing_fail_to_pass:
+                reasons.append("fail_to_pass still failing: " + ", ".join(missing_fail_to_pass[:3]))
+            if broken_pass_to_pass:
+                reasons.append("pass_to_pass regressed: " + ", ".join(broken_pass_to_pass[:3]))
+            return 0, "; ".join(reasons) or "SWE-bench verification failed"
+    except RuntimeError as exc:
+        return 0, str(exc)
+
+
+def verify_swebench(task: Any, workspace: Path) -> VerificationResult:
+    checks_passed, error_message = run_swebench_check(task, workspace)
+    if checks_passed == 1:
+        return VerificationResult(True, "SWE-bench verification passed.")
+    summary = (error_message or "SWE-bench verification failed").strip()
+    summary = summary.splitlines()[0] if summary else "SWE-bench verification failed"
+    return VerificationResult(False, f"SWE-bench verification failed. {summary}")
+
+
 def build_verification_hook(task: Any, workspace: Path) -> Callable[[], VerificationResult] | None:
     contract = dict(task.verification_contract)
     if not contract:
@@ -155,6 +218,8 @@ def build_verification_hook(task: Any, workspace: Path) -> Callable[[], Verifica
         return lambda: verify_humaneval(task, workspace)
     if mode == "mbpp_official":
         return lambda: verify_mbpp(task, workspace)
+    if mode == "swebench_patch_and_test":
+        return lambda: verify_swebench(task, workspace)
     if mode == "custom_commands":
         return lambda: verify_custom(task.verification, workspace)
     return None

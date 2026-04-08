@@ -104,9 +104,10 @@ def run_ablation_command(
     tstore = TrajectoryStore(cfg.eval.trajectory_dir)
     parsed_experiment_config = _parse_experiment_config(experiment_config)
 
-    def agent_factory(agent_cfg: dict):
+    def agent_factory(agent_cfg: dict, workspace: Path):
         return make_agent(
             agent_cfg,
+            workspace=workspace,
             experiment_id="ablation",
             trajectory_store=tstore,
             config_label=_resolve_config_label(agent_cfg),

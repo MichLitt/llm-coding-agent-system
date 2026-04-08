@@ -119,10 +119,15 @@ def write_run_manifest(
     output_dir: Path,
     config_label: str,
     *,
+    run_id: str | None,
+    workspace_path: Path | None,
+    workspace_mode: str,
     benchmark_name: str,
     preset: str,
     agent_config_snapshot: dict[str, Any] | None,
     runtime_experiment_config_snapshot: dict[str, Any] | None,
+    benchmark_metadata: dict[str, Any] | None,
+    task_ids: list[str],
     total_tasks: int,
     results: list[EvalResult],
     resume_enabled: bool,
@@ -135,6 +140,7 @@ def write_run_manifest(
     _, _, manifest_path = result_paths(output_dir, config_label)
     normalized_agent_config = _normalize_snapshot(agent_config_snapshot or {})
     normalized_runtime_config = _normalize_snapshot(runtime_experiment_config_snapshot or {})
+    normalized_benchmark_metadata = _normalize_snapshot(benchmark_metadata or {})
     combined_snapshot = {
         "benchmark": benchmark_name,
         "preset": preset,
@@ -143,17 +149,23 @@ def write_run_manifest(
     }
     manifest = {
         "config_label": config_label or "results",
+        "run_id": run_id,
+        "workspace_path": str(workspace_path.resolve()) if workspace_path else None,
+        "workspace_mode": workspace_mode,
         "benchmark": benchmark_name,
         "preset": preset,
         **_git_snapshot(),
         "started_at": started_at,
         "finished_at": finished_at,
+        "task_ids": task_ids,
         "completed_task_ids": [result.task_id for result in results],
         "total_tasks": total_tasks,
         "resume_enabled": resume_enabled,
         "llm_profile": llm_profile_name or "legacy",
         "llm_model": llm_model,
         "llm_transport": llm_transport,
+        "benchmark_metadata": normalized_benchmark_metadata,
+        "benchmark_metadata_sha256": _snapshot_sha256(normalized_benchmark_metadata),
         "agent_config_snapshot": normalized_agent_config,
         "agent_config_sha256": _snapshot_sha256(normalized_agent_config),
         "runtime_experiment_config_snapshot": normalized_runtime_config,

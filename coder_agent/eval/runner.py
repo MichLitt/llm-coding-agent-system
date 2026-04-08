@@ -1,9 +1,12 @@
 """Eval runner public facade."""
 
+import hashlib
 import json
+import secrets
 import time
 import traceback
-from dataclasses import asdict, dataclass, field
+import warnings
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -27,6 +30,7 @@ from coder_agent.eval.eval_verification import (
     run_custom_checks,
     run_humaneval_check,
     run_mbpp_check,
+    run_swebench_check,
     verify_custom,
     verify_humaneval,
 )
@@ -67,7 +71,7 @@ class EvalRunner:
 
     def __init__(
         self,
-        agent_factory: Callable[[dict], Any],
+        agent_factory: Callable[[dict, Path], Any],
         output_dir: Path | None = None,
         trajectory_dir: Path | None = None,
         llm_profile_name: str | None = None,
@@ -104,10 +108,14 @@ class EvalRunner:
         self,
         config_label: str,
         *,
+        run_id: str | None,
+        workspace_path: Path | None,
+        task_ids: list[str],
         benchmark_name: str,
         preset: str,
         agent_config: dict[str, Any] | None,
         experiment_config: dict[str, Any] | None,
+        benchmark_metadata: dict[str, Any] | None,
         total_tasks: int,
         results: list[EvalResult],
         resume_enabled: bool,
@@ -117,10 +125,15 @@ class EvalRunner:
         write_run_manifest(
             self.output_dir,
             config_label,
+            run_id=run_id,
+            workspace_path=workspace_path,
+            workspace_mode="per_run_v1" if config_label else "shared_legacy_default",
             benchmark_name=benchmark_name,
             preset=preset,
             agent_config_snapshot=agent_config or {},
             runtime_experiment_config_snapshot=experiment_config or {},
+            benchmark_metadata=benchmark_metadata or {},
+            task_ids=task_ids,
             total_tasks=total_tasks,
             results=results,
             resume_enabled=resume_enabled,
@@ -131,16 +144,112 @@ class EvalRunner:
             llm_transport=self._llm_transport,
         )
 
+    def _allocate_run_id(self) -> str:
+        timestamp = time.strftime("%Y%m%d%H%M%S", time.localtime())
+        return f"{timestamp}-{secrets.token_hex(4)}"
+
+    def _resolve_run_workspace(self, config_label: str, run_id: str | None = None) -> Path:
+        base = cfg.agent.workspace.resolve()
+        if not config_label:
+            return base
+        if run_id is None:
+            raise ValueError("run_id is required for labeled eval runs")
+        return (base / config_label / run_id).resolve()
+
+    def _validate_resume_manifest(
+        self,
+        *,
+        manifest: dict[str, Any],
+        tasks: list[TaskSpec],
+        config_label: str,
+        agent_config: dict[str, Any] | None,
+        experiment_config: dict[str, Any] | None,
+        benchmark_name: str,
+        preset: str,
+        benchmark_metadata: dict[str, Any] | None,
+    ) -> tuple[str, Path, float]:
+        run_id = manifest.get("run_id")
+        workspace_mode = manifest.get("workspace_mode")
+        workspace_path_raw = manifest.get("workspace_path")
+        if not run_id or not workspace_path_raw or workspace_mode != "per_run_v1":
+            raise ValueError(
+                f"Cannot resume legacy eval run for config_label={config_label or 'results'}: "
+                "manifest is missing run_id/workspace_path/workspace_mode=per_run_v1."
+            )
+
+        expected_agent_config = agent_config or {}
+        expected_runtime_config = experiment_config or {}
+        combined_snapshot = {
+            "benchmark": benchmark_name,
+            "preset": preset,
+            "agent_config": expected_agent_config,
+            "experiment_config": expected_runtime_config,
+        }
+        expected_task_ids = [task.task_id for task in tasks]
+        manifest_task_ids = manifest.get("task_ids")
+        expected_pairs = [
+            ("benchmark", manifest.get("benchmark"), benchmark_name),
+            ("preset", manifest.get("preset"), preset),
+            (
+                "agent_config_sha256",
+                manifest.get("agent_config_sha256"),
+                self._snapshot_sha256(expected_agent_config),
+            ),
+            (
+                "runtime_experiment_config_sha256",
+                manifest.get("runtime_experiment_config_sha256"),
+                self._snapshot_sha256(expected_runtime_config),
+            ),
+            (
+                "experiment_config_sha256",
+                manifest.get("experiment_config_sha256"),
+                self._snapshot_sha256(combined_snapshot),
+            ),
+            ("llm_profile", manifest.get("llm_profile"), self._llm_profile_name),
+            ("llm_model", manifest.get("llm_model"), self._llm_model),
+            ("llm_transport", manifest.get("llm_transport"), self._llm_transport),
+            (
+                "benchmark_metadata_sha256",
+                manifest.get("benchmark_metadata_sha256")
+                or self._snapshot_sha256(manifest.get("benchmark_metadata", {})),
+                self._snapshot_sha256(benchmark_metadata or {}),
+            ),
+        ]
+        for field_name, actual, expected in expected_pairs:
+            if actual != expected:
+                raise ValueError(
+                    f"Cannot resume eval run for config_label={config_label or 'results'}: "
+                    f"manifest {field_name} mismatch (expected {expected!r}, got {actual!r})."
+                )
+        if set(manifest_task_ids or []) != set(expected_task_ids):
+            raise ValueError(
+                f"Cannot resume eval run for config_label={config_label or 'results'}: "
+                "manifest task_ids do not match the requested task set."
+            )
+
+        manifest_workspace = Path(workspace_path_raw).resolve()
+        expected_workspace = self._resolve_run_workspace(config_label, run_id)
+        if manifest_workspace != expected_workspace:
+            warnings.warn(
+                "Resume manifest workspace_path does not match the currently resolved workspace; "
+                "using the currently resolved workspace_path.",
+                UserWarning,
+            )
+        return run_id, expected_workspace, manifest.get("started_at", time.time())
+
     def run_task(
         self,
         task: TaskSpec,
         agent: Any,
         config_label: str = "",
+        workspace: Path | None = None,
+        run_id: str | None = None,
     ) -> EvalResult:
-        workspace = cfg.agent.workspace
-        prepare_workspace(task.setup_files, workspace)
+        if workspace is None:
+            base_workspace = cfg.agent.workspace.resolve() if run_id is None else self._resolve_run_workspace(config_label, run_id)
+            workspace = self._resolve_task_workspace(task, base_workspace)
+        workspace = self._prepare_task_workspace(task, workspace)
         verification_hook = build_verification_hook(task, workspace)
-        gate_enabled = bool(getattr(agent, "experiment_config", {}).get("verification_gate", False))
 
         start = time.time()
         try:
@@ -186,6 +295,10 @@ class EvalRunner:
                 error_types.append(error_message)
         elif task.metadata.get("benchmark") == "mbpp":
             checks_passed, error_message = run_mbpp_check(task, workspace)
+            if error_message:
+                error_types.append(error_message)
+        elif task.metadata.get("benchmark") == "swebench":
+            checks_passed, error_message = run_swebench_check(task, workspace)
             if error_message:
                 error_types.append(error_message)
         else:
@@ -244,22 +357,39 @@ class EvalRunner:
         resume: bool = False,
         verbose: bool = True,
     ) -> list[EvalResult]:
+        task_ids = [task.task_id for task in tasks]
+        benchmark_metadata = self._benchmark_metadata(tasks, benchmark_name)
         if resume:
             results = self._load_checkpoint_results(config_label)
             previous_manifest = self._read_manifest(config_label)
-            started_at = previous_manifest.get("started_at", time.time())
+            run_id, run_workspace, started_at = self._validate_resume_manifest(
+                manifest=previous_manifest,
+                tasks=tasks,
+                config_label=config_label,
+                agent_config=agent_config,
+                experiment_config=experiment_config,
+                benchmark_name=benchmark_name,
+                preset=preset,
+                benchmark_metadata=benchmark_metadata,
+            )
         else:
             self._clear_run_artifacts(config_label)
             results = []
             started_at = time.time()
+            run_id = self._allocate_run_id() if config_label else None
+            run_workspace = self._resolve_run_workspace(config_label, run_id)
 
         self._write_results_json(config_label, results)
         self._write_run_manifest(
             config_label,
+            run_id=run_id,
+            workspace_path=run_workspace,
+            task_ids=task_ids,
             benchmark_name=benchmark_name,
             preset=preset,
             agent_config=agent_config,
             experiment_config=experiment_config,
+            benchmark_metadata=benchmark_metadata,
             total_tasks=len(tasks),
             results=results,
             resume_enabled=resume,
@@ -268,7 +398,7 @@ class EvalRunner:
         )
 
         completed_task_ids = {result.task_id for result in results}
-        agent = self.agent_factory(agent_config or {})
+        shared_agent = None if self._uses_task_scoped_agent(tasks) else self.agent_factory(agent_config or {}, run_workspace)
 
         try:
             for index, task in enumerate(tasks, start=1):
@@ -277,21 +407,37 @@ class EvalRunner:
                         print(f"\n[{index}/{len(tasks)}] Task: {task.task_id} ({task.difficulty})")
                         print("  SKIP from checkpoint")
                     continue
+                task_workspace = self._resolve_task_workspace(task, run_workspace)
+                agent = shared_agent or self.agent_factory(agent_config or {}, task_workspace)
                 if hasattr(agent, "reset"):
                     agent.reset()
                 if verbose:
                     print(f"\n[{index}/{len(tasks)}] Task: {task.task_id} ({task.difficulty})")
-                result = self.run_task(task, agent, config_label=config_label)
+                try:
+                    result = self.run_task(
+                        task,
+                        agent,
+                        config_label=config_label,
+                        workspace=task_workspace,
+                        run_id=run_id,
+                    )
+                finally:
+                    if shared_agent is None and hasattr(agent, "close"):
+                        agent.close()
                 results.append(result)
                 completed_task_ids.add(task.task_id)
                 self._append_checkpoint_result(config_label, result)
                 self._write_results_json(config_label, results)
                 self._write_run_manifest(
                     config_label,
+                    run_id=run_id,
+                    workspace_path=run_workspace,
+                    task_ids=task_ids,
                     benchmark_name=benchmark_name,
                     preset=preset,
                     agent_config=agent_config,
                     experiment_config=experiment_config,
+                    benchmark_metadata=benchmark_metadata,
                     total_tasks=len(tasks),
                     results=results,
                     resume_enabled=resume,
@@ -305,10 +451,14 @@ class EvalRunner:
             self._write_results_json(config_label, results)
             self._write_run_manifest(
                 config_label,
+                run_id=run_id,
+                workspace_path=run_workspace,
+                task_ids=task_ids,
                 benchmark_name=benchmark_name,
                 preset=preset,
                 agent_config=agent_config,
                 experiment_config=experiment_config,
+                benchmark_metadata=benchmark_metadata,
                 total_tasks=len(tasks),
                 results=results,
                 resume_enabled=resume,
@@ -323,8 +473,8 @@ class EvalRunner:
 
             return results
         finally:
-            if hasattr(agent, "close"):
-                agent.close()
+            if shared_agent is not None and hasattr(shared_agent, "close"):
+                shared_agent.close()
 
     def compare_configs(
         self,
@@ -378,6 +528,39 @@ class EvalRunner:
     def _expected_checks(self, task: TaskSpec) -> int:
         return expected_checks(task)
 
+    def _uses_task_scoped_agent(self, tasks: list[TaskSpec]) -> bool:
+        return any(task.metadata.get("benchmark") == "swebench" for task in tasks)
+
+    def _resolve_task_workspace(self, task: TaskSpec, run_workspace: Path) -> Path:
+        if task.metadata.get("benchmark") == "swebench":
+            return (run_workspace / task.task_id).resolve()
+        return run_workspace
+
+    def _prepare_task_workspace(self, task: TaskSpec, workspace: Path) -> Path:
+        if task.metadata.get("benchmark") == "swebench":
+            from coder_agent.eval.benchmarks.swebench.adapter import prepare_swebench_workspace
+
+            return prepare_swebench_workspace(task, workspace)
+        prepare_workspace(task.setup_files, workspace)
+        return workspace
+
+    def _benchmark_metadata(self, tasks: list[TaskSpec], benchmark_name: str) -> dict[str, Any]:
+        if benchmark_name != "swebench" or not tasks:
+            return {}
+        sample = tasks[0].metadata
+        return {
+            "dataset_name": sample.get("dataset_name"),
+            "dataset_version": sample.get("dataset_version"),
+            "source_mode": sample.get("source_mode"),
+            "source_source": sample.get("source_source"),
+            "source_revision": sample.get("source_revision"),
+            "subset": sample.get("subset"),
+            "official_manifest_path": sample.get("official_manifest_path"),
+            "official_manifest_sha256": sample.get("official_manifest_sha256"),
+            "overrides_manifest_path": sample.get("overrides_manifest_path"),
+            "overrides_manifest_sha256": sample.get("overrides_manifest_sha256"),
+        }
+
     def _run_custom_checks(self, checks: list[dict[str, Any]], workspace: Path) -> int:
         return run_custom_checks(checks, workspace)
 
@@ -416,3 +599,18 @@ class EvalRunner:
 
     def _normalize_command(self, cmd: str) -> str:
         return normalize_command(cmd)
+
+    @staticmethod
+    def _normalize_snapshot(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {str(key): EvalRunner._normalize_snapshot(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [EvalRunner._normalize_snapshot(item) for item in value]
+        if isinstance(value, Path):
+            return str(value)
+        return value
+
+    @staticmethod
+    def _snapshot_sha256(value: Any) -> str:
+        payload = json.dumps(EvalRunner._normalize_snapshot(value), sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()

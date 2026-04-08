@@ -3,10 +3,15 @@
 import asyncio
 import dataclasses
 import sys
+from pathlib import Path
 from typing import Any
 
 from coder_agent.config import cfg
-from coder_agent.core.agent_errors import build_error_guidance, build_import_error_guidance
+from coder_agent.core.agent_errors import (
+    build_error_guidance,
+    build_import_error_guidance,
+    build_verification_guidance,
+)
 from coder_agent.core.agent_loop import run_agent_loop
 from coder_agent.core.agent_prompt import SYSTEM_PROMPT, _build_system_prompt
 from coder_agent.core.agent_types import (
@@ -45,6 +50,7 @@ class Agent:
         experiment_id: str = "default",
         experiment_config: dict | None = None,
         runtime_config: dict[str, Any] | None = None,
+        workspace: Path | None = None,
     ):
         self._model_cfg = model_config or ModelConfig()
         self.tools = tools
@@ -52,6 +58,7 @@ class Agent:
         self.experiment_id = experiment_id
         self.experiment_config = experiment_config or {}
         self._experiment_config = dict(runtime_config or {})
+        self.workspace = Path(workspace or cfg.agent.workspace).resolve()
         self.verbose = verbose
         self.client = client
         self.memory = memory
@@ -64,6 +71,7 @@ class Agent:
             self.system = _build_system_prompt(
                 planning_mode=self.experiment_config.get("planning_mode", cfg.agent.planning_mode),
                 enable_correction=self.experiment_config.get("correction", cfg.agent.enable_correction),
+                workspace=str(self.workspace),
             )
 
         self.history = MessageHistory(
@@ -93,6 +101,7 @@ class Agent:
         self.system = _build_system_prompt(
             planning_mode=self.experiment_config.get("planning_mode", cfg.agent.planning_mode),
             enable_correction=self.experiment_config.get("correction", cfg.agent.enable_correction),
+            workspace=str(self.workspace),
         )
         self.history = MessageHistory(
             model=self._model_cfg.model,
@@ -155,7 +164,7 @@ class Agent:
                 return
 
     def _build_import_error_guidance(self, stderr_text: str, *, repeated: bool = False) -> str:
-        return build_import_error_guidance(stderr_text, repeated=repeated)
+        return build_import_error_guidance(stderr_text, repeated=repeated, workspace=self.workspace)
 
     def _build_error_guidance(
         self,
@@ -164,12 +173,25 @@ class Agent:
         *,
         repeated: bool = False,
     ) -> str:
-        return build_error_guidance(error_type, stderr_text, repeated=repeated)
+        return build_error_guidance(error_type, stderr_text, repeated=repeated, workspace=self.workspace)
+
+    def _build_verification_guidance(
+        self,
+        summary: str,
+        *,
+        repeated: bool = False,
+        counted_attempt: bool = False,
+    ) -> str:
+        return build_verification_guidance(
+            summary,
+            repeated=repeated,
+            counted_attempt=counted_attempt,
+        )
 
     def _record_memory_result(self, user_input: str, result: TurnResult) -> None:
         if self.memory is None:
             return
-        project_id = self.memory.get_or_create_project(cfg.agent.workspace)
+        project_id = self.memory.get_or_create_project(self.workspace)
         self.memory.record_task(project_id, user_input, result)
         result.extra["db_records_written"] = result.extra.get("db_records_written", 0) + 1
 

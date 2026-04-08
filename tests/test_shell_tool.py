@@ -1,11 +1,21 @@
 """Tests for RunCommandTool: timeout, output decoding, blocked commands, exit codes."""
 
+import os
+import sys
 import time
+from pathlib import Path
 
 import pytest
 
 from coder_agent.tools import shell_tool
 from coder_agent.tools.shell_tool import RunCommandTool
+
+
+@pytest.mark.asyncio
+async def test_run_command_uses_bound_workspace(tmp_path):
+    tool = RunCommandTool(tmp_path)
+    result = await tool.execute(command='python -c "import os; print(os.getcwd())"', timeout=5)
+    assert str(tmp_path.resolve()) in result
 
 
 @pytest.mark.asyncio
@@ -133,8 +143,8 @@ async def test_pytest_after_and_and_normalized():
 
 
 @pytest.mark.asyncio
-async def test_python3_not_double_normalized():
-    """'python3' must NOT be matched and left unchanged."""
+async def test_python3_bare_prefix_normalized():
+    """'python3 --version' should be normalized to the workspace interpreter."""
     tool = RunCommandTool()
     result = await tool.execute(command="python3 --version", timeout=5)
     assert "Exit code: 0" in result
@@ -194,3 +204,64 @@ async def test_python_m_pytest_not_double_expanded():
     assert cmd.count("-m pytest") == 1, f"double expansion detected: {cmd!r}"
     # Must not contain the pattern '-m /absolute/path' (module spec error)
     assert "Error while finding module specification" not in cmd
+
+
+@pytest.mark.asyncio
+async def test_run_command_prefers_workspace_swebench_venv(monkeypatch, tmp_path):
+    import asyncio
+    import unittest.mock as mock
+
+    monkeypatch.setenv("PYTHONPATH", "/tmp/host-pythonpath")
+    monkeypatch.setenv("PYTHONHOME", "/tmp/host-pythonhome")
+    monkeypatch.setenv("__PYVENV_LAUNCHER__", "/tmp/launcher")
+
+    venv_bin = tmp_path / ".swebench-venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "python").symlink_to(sys.executable)
+
+    captured = {}
+    original_create = asyncio.create_subprocess_shell
+
+    async def fake_create(cmd, **kw):
+        captured["cmd"] = cmd
+        captured["env"] = kw.get("env", {})
+        return await original_create(cmd, **kw)
+
+    with mock.patch("asyncio.create_subprocess_shell", side_effect=fake_create):
+        tool = RunCommandTool(tmp_path)
+        result = await tool.execute(command="python --version", timeout=5)
+
+    assert "Exit code: 0" in result
+    assert str(venv_bin / "python") in captured["cmd"]
+    assert captured["env"]["VIRTUAL_ENV"] == str(tmp_path / ".swebench-venv")
+    assert captured["env"]["PATH"].startswith(str(venv_bin) + os.pathsep)
+    assert captured["env"]["UV_CACHE_DIR"] == str(tmp_path / ".uv-cache")
+    assert captured["env"]["PYTHONNOUSERSITE"] == "1"
+    assert "PYTHONPATH" not in captured["env"]
+
+
+@pytest.mark.asyncio
+async def test_run_command_normalizes_python3_to_workspace_swebench_venv(tmp_path):
+    import asyncio
+    import unittest.mock as mock
+
+    venv_bin = tmp_path / ".swebench-venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "python").symlink_to(sys.executable)
+
+    captured = {}
+    original_create = asyncio.create_subprocess_shell
+
+    async def fake_create(cmd, **kw):
+        captured["cmd"] = cmd
+        captured["env"] = kw.get("env", {})
+        return await original_create(cmd, **kw)
+
+    with mock.patch("asyncio.create_subprocess_shell", side_effect=fake_create):
+        tool = RunCommandTool(tmp_path)
+        result = await tool.execute(command="python3 --version", timeout=5)
+
+    assert "Exit code: 0" in result
+    assert captured["cmd"].startswith(f'"{venv_bin / "python"}" --version')
+    assert "PYTHONHOME" not in captured["env"]
+    assert "__PYVENV_LAUNCHER__" not in captured["env"]

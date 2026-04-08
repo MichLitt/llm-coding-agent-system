@@ -3,12 +3,11 @@
 import asyncio
 import re
 import shutil
+from pathlib import Path
 from pathlib import PurePosixPath, PureWindowsPath
 
 from coder_agent.config import cfg
 from coder_agent.tools.base import Tool
-
-_WORKSPACE = cfg.agent.workspace
 
 
 def _validate_file_glob(file_glob: str) -> str | None:
@@ -24,7 +23,7 @@ def _validate_file_glob(file_glob: str) -> str | None:
 
 
 class SearchCodeTool(Tool):
-    def __init__(self):
+    def __init__(self, workspace: Path | None = None):
         super().__init__(
             name="search_code",
             description="Search for a regex pattern across workspace files.",
@@ -40,13 +39,14 @@ class SearchCodeTool(Tool):
                 "required": ["pattern"],
             },
         )
+        self.workspace = Path(workspace or cfg.agent.workspace).resolve()
 
     async def execute(self, pattern: str, path: str = ".", file_glob: str = "*", case_sensitive: bool = True, max_results: int = 50) -> str:
         if max_results < 1:
             return "Error: max_results must be >= 1"
 
-        root = (_WORKSPACE / path).resolve()
-        if not root.is_relative_to(_WORKSPACE):
+        root = (self.workspace / path).resolve()
+        if not root.is_relative_to(self.workspace):
             return "Error: path escapes workspace"
         if not root.exists():
             return f"Error: path not found: {path}"
@@ -54,7 +54,7 @@ class SearchCodeTool(Tool):
         if file_glob_error:
             return file_glob_error
 
-        rel_path = str(root.relative_to(_WORKSPACE))
+        rel_path = str(root.relative_to(self.workspace))
 
         rg_path = shutil.which("rg")
         if rg_path:
@@ -67,7 +67,7 @@ class SearchCodeTool(Tool):
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *args,
-                    cwd=str(_WORKSPACE),
+                    cwd=str(self.workspace),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -106,7 +106,7 @@ class SearchCodeTool(Tool):
                 with file_path.open("r", encoding="utf-8", errors="replace") as f:
                     for lineno, line in enumerate(f, start=1):
                         if regex.search(line):
-                            rel_file = file_path.relative_to(_WORKSPACE)
+                            rel_file = file_path.relative_to(self.workspace)
                             results.append(f"{rel_file}:{lineno}: {line.rstrip()}")
                             if len(results) >= max_results:
                                 return "\n".join(results)

@@ -4,7 +4,6 @@ import shutil
 
 import pytest
 
-from coder_agent.tools import search_tool
 from coder_agent.tools.search_tool import SearchCodeTool
 
 
@@ -30,11 +29,9 @@ def _make_workspace(tmp_path):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_search_finds_pattern_in_file(tmp_path, monkeypatch):
+async def test_search_finds_pattern_in_file(tmp_path):
     ws = _make_workspace(tmp_path)
-    monkeypatch.setattr(search_tool, "_WORKSPACE", ws)
-
-    tool = SearchCodeTool()
+    tool = SearchCodeTool(ws)
     result = await tool.execute(pattern="hello")
 
     assert "alpha.py" in result
@@ -42,22 +39,18 @@ async def test_search_finds_pattern_in_file(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_search_returns_no_matches_for_absent_pattern(tmp_path, monkeypatch):
+async def test_search_returns_no_matches_for_absent_pattern(tmp_path):
     ws = _make_workspace(tmp_path)
-    monkeypatch.setattr(search_tool, "_WORKSPACE", ws)
-
-    tool = SearchCodeTool()
+    tool = SearchCodeTool(ws)
     result = await tool.execute(pattern="ZZZNOMATCH")
 
     assert result == "No matches found."
 
 
 @pytest.mark.asyncio
-async def test_search_case_insensitive_matches_both_cases(tmp_path, monkeypatch):
+async def test_search_case_insensitive_matches_both_cases(tmp_path):
     ws = _make_workspace(tmp_path)
-    monkeypatch.setattr(search_tool, "_WORKSPACE", ws)
-
-    tool = SearchCodeTool()
+    tool = SearchCodeTool(ws)
     result = await tool.execute(pattern="hello", case_sensitive=False)
 
     # alpha.py has "hello", sub/gamma.py has "HELLO_CONSTANT"
@@ -66,11 +59,9 @@ async def test_search_case_insensitive_matches_both_cases(tmp_path, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_search_case_sensitive_does_not_match_wrong_case(tmp_path, monkeypatch):
+async def test_search_case_sensitive_does_not_match_wrong_case(tmp_path):
     ws = _make_workspace(tmp_path)
-    monkeypatch.setattr(search_tool, "_WORKSPACE", ws)
-
-    tool = SearchCodeTool()
+    tool = SearchCodeTool(ws)
     result = await tool.execute(pattern="HELLO", case_sensitive=True)
 
     # gamma.py has "HELLO_CONSTANT" but alpha.py only has "hello" (lowercase)
@@ -79,12 +70,10 @@ async def test_search_case_sensitive_does_not_match_wrong_case(tmp_path, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_search_file_glob_restricts_to_matching_files(tmp_path, monkeypatch):
+async def test_search_file_glob_restricts_to_matching_files(tmp_path):
     ws = _make_workspace(tmp_path)
     (ws / "readme.txt").write_text("hello from readme", encoding="utf-8")
-    monkeypatch.setattr(search_tool, "_WORKSPACE", ws)
-
-    tool = SearchCodeTool()
+    tool = SearchCodeTool(ws)
     result = await tool.execute(pattern="hello", file_glob="*.py")
 
     assert "alpha.py" in result
@@ -92,34 +81,28 @@ async def test_search_file_glob_restricts_to_matching_files(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_search_respects_max_results(tmp_path, monkeypatch):
+async def test_search_respects_max_results(tmp_path):
     ws = tmp_path
     (ws / "many.py").write_text(
         "\n".join(f"target_line_{i}" for i in range(20)), encoding="utf-8"
     )
-    monkeypatch.setattr(search_tool, "_WORKSPACE", ws)
-
-    tool = SearchCodeTool()
+    tool = SearchCodeTool(ws)
     result = await tool.execute(pattern="target_line", max_results=5)
 
     assert result.count("target_line") == 5
 
 
 @pytest.mark.asyncio
-async def test_search_invalid_max_results_returns_error(tmp_path, monkeypatch):
-    monkeypatch.setattr(search_tool, "_WORKSPACE", tmp_path)
-
-    tool = SearchCodeTool()
+async def test_search_invalid_max_results_returns_error(tmp_path):
+    tool = SearchCodeTool(tmp_path)
     result = await tool.execute(pattern="x", max_results=0)
 
     assert result.startswith("Error")
 
 
 @pytest.mark.asyncio
-async def test_search_path_traversal_returns_error(tmp_path, monkeypatch):
-    monkeypatch.setattr(search_tool, "_WORKSPACE", tmp_path)
-
-    tool = SearchCodeTool()
+async def test_search_path_traversal_returns_error(tmp_path):
+    tool = SearchCodeTool(tmp_path)
     result = await tool.execute(pattern="x", path="../outside")
 
     assert result.startswith("Error: path escapes workspace")
@@ -128,11 +111,10 @@ async def test_search_path_traversal_returns_error(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_search_invalid_regex_returns_error_via_python_fallback(tmp_path, monkeypatch):
     ws = _make_workspace(tmp_path)
-    monkeypatch.setattr(search_tool, "_WORKSPACE", ws)
     # Force Python fallback by hiding ripgrep
     monkeypatch.setattr(shutil, "which", lambda _: None)
 
-    tool = SearchCodeTool()
+    tool = SearchCodeTool(ws)
     result = await tool.execute(pattern="[invalid")
 
     assert result.startswith("Error: invalid regex")
@@ -141,10 +123,9 @@ async def test_search_invalid_regex_returns_error_via_python_fallback(tmp_path, 
 @pytest.mark.asyncio
 async def test_search_python_fallback_finds_matches_without_ripgrep(tmp_path, monkeypatch):
     ws = _make_workspace(tmp_path)
-    monkeypatch.setattr(search_tool, "_WORKSPACE", ws)
     monkeypatch.setattr(shutil, "which", lambda _: None)
 
-    tool = SearchCodeTool()
+    tool = SearchCodeTool(ws)
     result = await tool.execute(pattern="goodbye")
 
     assert "beta.py" in result
@@ -155,11 +136,10 @@ async def test_search_python_fallback_finds_matches_without_ripgrep(tmp_path, mo
 async def test_absolute_file_glob_returns_error_not_exception(tmp_path, monkeypatch):
     """Bug C regression: absolute file_glob must not crash with NotImplementedError."""
     ws = _make_workspace(tmp_path)
-    monkeypatch.setattr(search_tool, "_WORKSPACE", ws)
     # Force Python fallback (no ripgrep) so the rglob() path is exercised.
     monkeypatch.setattr(shutil, "which", lambda _: None)
 
-    tool = SearchCodeTool()
+    tool = SearchCodeTool(ws)
     result = await tool.execute(pattern="def", file_glob="/absolute/path/*.py")
 
     assert result.startswith("Error")
@@ -167,13 +147,12 @@ async def test_absolute_file_glob_returns_error_not_exception(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_absolute_file_glob_with_ripgrep_returns_error(tmp_path, monkeypatch):
+async def test_absolute_file_glob_with_ripgrep_returns_error(tmp_path):
     """Absolute file_glob is rejected even when ripgrep is present."""
     ws = _make_workspace(tmp_path)
-    monkeypatch.setattr(search_tool, "_WORKSPACE", ws)
     # Keep ripgrep available (don't monkeypatch shutil.which).
 
-    tool = SearchCodeTool()
+    tool = SearchCodeTool(ws)
     result = await tool.execute(pattern="def", file_glob="/absolute/path/*.py")
 
     assert result.startswith("Error")

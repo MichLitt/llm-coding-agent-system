@@ -15,6 +15,7 @@ from coder_agent.core.agent_loop import (
 )
 from coder_agent.core.agent_errors import (
     build_error_guidance,
+    build_verification_guidance,
     classify_error,
     extract_combined_failure_text,
     extract_failure_excerpt,
@@ -706,6 +707,71 @@ async def test_verification_hook_failure_exhausts_attempts(monkeypatch):
     assert result.success is False
     assert result.termination_reason == TERMINATION_VERIFICATION_FAILED
     assert "still failing" in result.content
+
+
+@pytest.mark.asyncio
+async def test_no_tool_completion_verification_failure_does_not_exhaust_attempts(monkeypatch):
+    trajectory_store = FakeTrajectoryStore()
+    client = FakeClient([
+        _final_response("done"),
+        _final_response("done again"),
+    ])
+    agent = _agent(client, {"correction": True}, trajectory_store=trajectory_store)
+
+    result = await agent._loop(
+        "task",
+        verification_hook=lambda: VerificationResult(False, "still failing"),
+        max_verification_attempts=1,
+        max_steps=2,
+    )
+
+    assert result.success is False
+    assert result.termination_reason == TERMINATION_MAX_STEPS
+    assert len(trajectory_store.recorded_steps) == 2
+    assert "[counted=no]" in trajectory_store.recorded_steps[0][1].observation
+    assert client.index == 2
+
+
+@pytest.mark.asyncio
+async def test_verification_failure_counts_after_recovery_action(monkeypatch):
+    async def fake_execute_tools(tool_calls, tool_dict):
+        return [{
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": "Exit code: 0\nSTDOUT:\n\nSTDERR:\n",
+        }]
+
+    monkeypatch.setattr(agent_module, "execute_tools", fake_execute_tools)
+    client = FakeClient([
+        _final_response("premature summary"),
+        _tool_call_response(),
+        _final_response("done"),
+    ])
+    trajectory_store = FakeTrajectoryStore()
+    agent = _agent(client, {"correction": True}, trajectory_store=trajectory_store)
+
+    result = await agent._loop(
+        "task",
+        verification_hook=lambda: VerificationResult(False, "still failing"),
+        max_verification_attempts=1,
+        max_steps=3,
+    )
+
+    assert result.success is False
+    assert result.termination_reason == TERMINATION_VERIFICATION_FAILED
+    observations = [step.observation for _, step in trajectory_store.recorded_steps]
+    assert any("[counted=no]" in observation for observation in observations)
+    assert any("[counted=yes]" in observation for observation in observations)
+
+
+def test_build_verification_guidance_mentions_target_and_no_summary():
+    guidance = build_verification_guidance(
+        "fail_to_pass still failing: tests/checkers/unittest_misc.py::TestFixme::test_non_alphanumeric_codetag",
+        counted_attempt=False,
+    )
+
+    assert "tests/checkers/unittest_misc.py::TestFixme::test_non_alphanumeric_codetag" in guidance
+    assert "Do not stop with a summary" in guidance
 
 
 @pytest.mark.asyncio

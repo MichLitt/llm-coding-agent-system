@@ -6,19 +6,16 @@ from typing import Any
 from coder_agent.config import cfg
 from coder_agent.tools.base import Tool
 
-_WORKSPACE = cfg.agent.workspace
-
-
-def _safe_path(path: str) -> Path | None:
+def _safe_path(workspace: Path, path: str) -> Path | None:
     p = Path(path)
-    full = p.resolve() if p.is_absolute() else (_WORKSPACE / path).resolve()
-    if not full.is_relative_to(_WORKSPACE):
+    full = p.resolve() if p.is_absolute() else (workspace / path).resolve()
+    if not full.is_relative_to(workspace):
         return None
     return full
 
 
 class ReadFileTool(Tool):
-    def __init__(self):
+    def __init__(self, workspace: Path | None = None):
         super().__init__(
             name="read_file",
             description="Read a file from the workspace.",
@@ -38,6 +35,7 @@ class ReadFileTool(Tool):
                 "required": ["path"],
             },
         )
+        self.workspace = Path(workspace or cfg.agent.workspace).resolve()
 
     def _normalize_start_line(
         self,
@@ -65,7 +63,7 @@ class ReadFileTool(Tool):
         start_line: int = 1,
         min_lines: Any = None,
     ) -> str:
-        full_path = _safe_path(path)
+        full_path = _safe_path(self.workspace, path)
         if full_path is None:
             return "Error: path escapes workspace"
         if not full_path.is_file():
@@ -90,7 +88,7 @@ class ReadFileTool(Tool):
 
 
 class WriteFileTool(Tool):
-    def __init__(self):
+    def __init__(self, workspace: Path | None = None):
         super().__init__(
             name="write_file",
             description="Create/overwrite a file, or perform a targeted text replacement.",
@@ -106,9 +104,10 @@ class WriteFileTool(Tool):
                 "required": ["operation", "path"],
             },
         )
+        self.workspace = Path(workspace or cfg.agent.workspace).resolve()
 
     async def execute(self, operation: str, path: str, content: str = "", old_text: str = "", new_text: str = "") -> str:
-        full_path = _safe_path(path)
+        full_path = _safe_path(self.workspace, path)
         if full_path is None:
             return "Error: path escapes workspace"
         if operation == "write":
@@ -121,7 +120,7 @@ class WriteFileTool(Tool):
         try:
             full_path.parent.mkdir(parents=True, exist_ok=True)
             full_path.write_text(content, encoding="utf-8")
-            return f"Written: {full_path.relative_to(_WORKSPACE)}"
+            return f"Written: {full_path.relative_to(self.workspace)}"
         except Exception as e:
             return f"Error: {e}"
 
@@ -135,13 +134,13 @@ class WriteFileTool(Tool):
             if old_text not in content:
                 return "Error: old_text not found in file"
             full_path.write_text(content.replace(old_text, new_text, 1), encoding="utf-8")
-            return f"Edited: {full_path.relative_to(_WORKSPACE)}"
+            return f"Edited: {full_path.relative_to(self.workspace)}"
         except Exception as e:
             return f"Error: {e}"
 
 
 class ListDirTool(Tool):
-    def __init__(self):
+    def __init__(self, workspace: Path | None = None):
         super().__init__(
             name="list_dir",
             description="List directory contents as a tree.",
@@ -154,9 +153,10 @@ class ListDirTool(Tool):
                 "required": [],
             },
         )
+        self.workspace = Path(workspace or cfg.agent.workspace).resolve()
 
     async def execute(self, path: str = ".", depth: int = 1) -> str:
-        full_path = _safe_path(path)
+        full_path = _safe_path(self.workspace, path)
         if full_path is None:
             return "Error: path escapes workspace"
         if not full_path.is_dir():
@@ -164,7 +164,7 @@ class ListDirTool(Tool):
         if depth < 1:
             return "Error: depth must be >= 1"
 
-        root_label = f"[workspace root: {_WORKSPACE}]" if path in ("", ".") else path.rstrip("/\\")
+        root_label = f"[workspace root: {self.workspace}]" if path in ("", ".") else path.rstrip("/\\")
         lines = [root_label]
         stack = [(full_path, 0)]
 

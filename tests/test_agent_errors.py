@@ -1,5 +1,7 @@
 """Tests for agent_errors.py — guidance builders and error classification."""
 
+from pathlib import Path
+
 import pytest
 
 from coder_agent.core.agent_errors import build_import_error_guidance, build_error_guidance
@@ -58,3 +60,16 @@ def test_build_import_error_guidance_empty_stderr_does_not_raise():
     """Empty stderr should not crash; returns generic fallback hint."""
     result = build_import_error_guidance("")
     assert isinstance(result, str)
+
+
+def test_build_import_error_guidance_uses_explicit_workspace(tmp_path):
+    pkg = tmp_path / "demo"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+
+    result = build_import_error_guidance(
+        "ModuleNotFoundError: No module named 'demo'",
+        workspace=Path(tmp_path),
+    )
+
+    assert "demo/__init__.py" in result

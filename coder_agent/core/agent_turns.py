@@ -142,21 +142,41 @@ async def handle_completion_turn(
     clean_text = clean_text_content(turn.text_content)
 
     if verification_hook is not None and enforce_stop_verification:
-        state.verification_attempts += 1
         verification_result = await run_verification_hook(verification_hook, state=state)
         if not verification_result.passed:
             failure_summary = verification_result.summary.strip() or "Verification failed."
+            failure_signature = failure_summary.splitlines()[0].strip()[:200]
+            repeated_failure = failure_signature == getattr(
+                state, "last_verification_failure_signature", None
+            )
+            state.last_verification_failure_signature = failure_signature
+            state.verification_failures += 1
+            state.consecutive_verification_failures = (
+                state.consecutive_verification_failures + 1 if repeated_failure else 1
+            )
+            counted_attempt = bool(getattr(state, "verification_recovery_action_seen", False))
+            if counted_attempt:
+                state.verification_attempts += 1
+            else:
+                state.no_tool_completion_verification_failures += 1
+            diagnostic_observation = (
+                "[verification failed]"
+                f"[completion-without-tools]"
+                f"[attempt {state.verification_attempts}/{max_verification_attempts}]"
+                f"[counted={'yes' if counted_attempt else 'no'}]\n"
+                f"{failure_summary}"
+            )
             record_trajectory_step(
                 agent,
                 state,
                 thought=clean_text,
                 action=None,
-                observation=f"[verification failed]\n{failure_summary}",
+                observation=diagnostic_observation,
                 timestamp=step_start,
                 error_type="VerificationFailed",
                 is_retry=False,
             )
-            if state.verification_attempts >= max_verification_attempts:
+            if counted_attempt and state.verification_attempts >= max_verification_attempts:
                 return finalize_turn(
                     agent,
                     state,
@@ -166,23 +186,20 @@ async def handle_completion_turn(
                     success=False,
                     final_status="failed",
                     termination_reason=TERMINATION_VERIFICATION_FAILED,
-                    error_details=[failure_summary],
-                )
+                        error_details=[failure_summary],
+                    )
 
-            state.exception_stage = "history.add_verification_feedback"
-            await agent.history.add_message("assistant", clean_text)
-            await agent.history.add_message(
-                "user",
-                (
-                    "External verification failed.\n\n"
-                    f"{failure_summary}\n\n"
-                    "You MUST use the write_file tool to write your implementation to disk "
-                    "(operation=\"write\" to create/overwrite, operation=\"edit\" for targeted replacement). "
-                    "Do NOT describe the solution in text — "
-                    "call write_file to create or modify the file, then "
-                    "stop and I will verify again."
-                ),
+            guidance = agent._build_verification_guidance(
+                failure_summary,
+                repeated=repeated_failure or state.no_tool_completion_verification_failures > 1,
+                counted_attempt=counted_attempt,
             )
+            state.verification_recovery_action_seen = False
+            state.awaiting_retry_verification = True
+            state.retry_edit_target = None
+            state.exception_stage = "history.add_verification_feedback"
+            await agent.history.add_message("assistant", clean_text or "[completion without tools]")
+            await agent.history.add_message("user", guidance)
             return None
 
     record_trajectory_step(

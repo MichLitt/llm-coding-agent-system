@@ -10,27 +10,37 @@ License: [MIT](./LICENSE).
 - ReAct-style agent loop with tool calling and self-correction
 - Task-aware verification gate for benchmark termination
 - Custom benchmark runner for multi-step coding tasks
+- Official SWE-bench Lite subset runner for repository repair smoke and compare lanes
 - HumanEval runner for function-level benchmark evaluation
 - Trajectory analysis, failure taxonomy, and experiment comparison
 
 ## Current Status
 
-The current branch has an accepted `0.5.1` baseline on the 40-task Custom suite. Eval auditability and runtime-config plumbing are part of that accepted state, and the active source of truth is `report/BASELINE_0_5_1.md`. The older `0.4.0` promotion set remains archived historical context on the 21-task Custom suite.
+The last completed baseline artifact set is `report/BASELINE_0_6_0.md`. The `0.6.0` cycle closed the runtime-contract rebaseline introduced by `v0.6.0a`, `v0.6.0b`, and `v0.6.0c`: per-run eval workspace isolation, explicit runtime workspace plumbing across the agent/tool stack, stricter resume/manifest contracts, a fixed official SWE-bench Lite subset for repository-level smoke and compare runs, and a generated-manifest alignment layer that derives the SWE-bench task contract from checked-in official metadata plus local runtime overrides. A post-baseline `v0.6.0d` change then hardened SWE-bench promoted task-local provisioning and host Python env isolation, and the branch now has fresh post-hardening SWE reruns to cite.
 
 Key points:
 
 - The supported runtime path is an OpenAI-compatible backend configured with `LLM_API_KEY` and optional `LLM_BASE_URL`.
 - `model.provider` remains in config for compatibility and is informational only at runtime.
 - The active day-to-day presets are `default`, `C3`, `C4`, and `C6`.
-- The active rebaseline docs are `BASELINE_0_5_1.md` and `REBASELINE_PLAYBOOK_0_5_1.md`.
-- Accepted `0.5.1` shipped benchmark lanes are `c4_m1_final` and `c6_baseline_final`.
-- Accepted supporting final compare lanes include `c4_m3_final`, `c6_ctx1_final`, `c6_ctx2_final`, `c6_ctx3_final`, and `c6_ctx_all_final`.
+- The last completed baseline doc is `BASELINE_0_6_0.md`; `REBASELINE_PLAYBOOK_0_6_0.md` records the accepted `0.6.0` closure, including the post-`v0.6.0d` SWE reruns.
+- The accepted `0.6.0` Custom targeted compare artifacts are `custom_v060_cmp_C3`, `custom_v060_cmp_C4`, and `custom_v060_cmp_C6`.
+- The accepted `0.6.0` SWE-bench validation artifacts are `swe_smoke_c3_v060i`, `swe_promoted_cmp_v060i_C3`, and `swe_promoted_cmp_v060i_C6`.
 - `C5` remains available for checklist experiments, but it is explicitly non-promoted.
+- Eval runs with a `config_label` now allocate a unique run workspace under `<workspace>/<config_label>/<run_id>/`.
+- `--resume` now means "skip completed tasks and continue remaining tasks"; it does not restore prior workspace state, conversation history, or loop state.
+- `--benchmark swebench` now runs a version-pinned official SWE-bench Lite subset with per-task workspaces under `<run_workspace>/<task_id>/`.
+- The SWE-bench task source of truth is now `official_manifest.generated.json` plus `local_overrides.json`, not a hand-written single task manifest.
 
 Recommended reading:
 
+- [BASELINE_0_6_0.md](./report/BASELINE_0_6_0.md)
+- [IMPROVEMENT_REPORT_v0.6.0d.md](./report/IMPROVEMENT_REPORT_v0.6.0d.md)
 - [BASELINE_0_5_1.md](./report/BASELINE_0_5_1.md)
-- [REBASELINE_PLAYBOOK_0_5_1.md](./report/REBASELINE_PLAYBOOK_0_5_1.md)
+- [REBASELINE_PLAYBOOK_0_6_0.md](./report/REBASELINE_PLAYBOOK_0_6_0.md)
+- [IMPROVEMENT_REPORT_v0.6.0c.md](./report/IMPROVEMENT_REPORT_v0.6.0c.md)
+- [IMPROVEMENT_REPORT_v0.6.0b.md](./report/IMPROVEMENT_REPORT_v0.6.0b.md)
+- [IMPROVEMENT_REPORT_v0.6.0a.md](./report/IMPROVEMENT_REPORT_v0.6.0a.md)
 - [IMPROVEMENT_REPORT_v0.5.1.md](./report/IMPROVEMENT_REPORT_v0.5.1.md)
 - [BASELINE_0_4_0.md](./report/BASELINE_0_4_0.md) - archived historical baseline on the 21-task suite
 - [REBASELINE_PLAYBOOK_0_4_0.md](./report/REBASELINE_PLAYBOOK_0_4_0.md) - archived historical playbook
@@ -39,13 +49,13 @@ Recommended reading:
 
 ### Preset Guidance
 
-| Preset | Primary use | 0.5.1 cycle status |
+| Preset | Primary use | 0.6.0 cycle status |
 |--------|-------------|--------------|
 | `default` | Config-driven interactive use | Active |
-| `C3` | ReAct + correction baseline | Supporting compare lane |
-| `C4` | Multi-step tasks with memory | Accepted shipped baseline lane |
+| `C3` | ReAct + correction baseline | Best targeted Custom compare lane |
+| `C4` | Multi-step tasks with memory | Supporting targeted compare lane |
 | `C5` | Checklist/decomposer experiments | Experimental |
-| `C6` | Verification-gated ReAct baseline | Accepted shipped baseline lane |
+| `C6` | Verification-gated ReAct baseline | Supporting targeted compare lane |
 
 ## Quick Start
 
@@ -110,6 +120,28 @@ Runtime experiment overrides can be passed as JSON and are captured in the run m
 ```bash
 uv run python -m coder_agent eval --benchmark custom --preset C4 --config-label demo \
   --experiment-config '{"memory_lookup_mode":"similarity","keep_recent_turns":4}'
+```
+
+Labeled eval runs now write run-scoped metadata into the manifest, including `run_id`, `workspace_path`, `workspace_mode`, and the requested `task_ids`. Resume only works when the benchmark, preset/config snapshots, LLM profile, and task set still match the original run.
+
+SWE-bench Lite smoke example:
+
+```bash
+uv run python -m coder_agent eval --benchmark swebench --swebench-subset smoke \
+  --preset C3 --config-label swe_smoke_c3_v060i
+```
+
+SWE-bench Lite compare example:
+
+```bash
+uv run python -m coder_agent eval --benchmark swebench --swebench-subset promoted \
+  --compare C3,C6 --config-label swe_promoted_cmp_v060i
+```
+
+Regenerate the checked-in SWE-bench official manifest from the source snapshot:
+
+```bash
+uv run python scripts/export_swebench_manifest.py
 ```
 
 ### 5. Analyze an experiment
@@ -177,17 +209,13 @@ Then add the corresponding vars to `.env` and use `--llm-profile my_provider`.
 
 ## Evaluation and Re-Baselining
 
-The active `0.5.1` rebaseline contract is:
+The branch currently has two relevant baseline documents:
 
-- the required final Custom reruns have been completed
-- exact artifact names and matching manifests/trajectories are recorded in `report/BASELINE_0_5_1.md`
-- run manifests record both preset config and runtime experiment overrides
-- public reporting cites exact accepted artifact names
-- the `0.4.0` promotion set remains archive/reference only
+- [BASELINE_0_6_0.md](./report/BASELINE_0_6_0.md): current accepted metrics on the per-run-workspace runtime
+- [BASELINE_0_5_1.md](./report/BASELINE_0_5_1.md): archived accepted metrics on the pre-`0.6.0a` runtime
+- [REBASELINE_PLAYBOOK_0_6_0.md](./report/REBASELINE_PLAYBOOK_0_6_0.md): completed rebaseline contract and reproduction commands for the `0.6.0` cycle
 
-Exact commands, artifact naming, and release acceptance checks live in [REBASELINE_PLAYBOOK_0_5_1.md](./report/REBASELINE_PLAYBOOK_0_5_1.md).
-
-The current branch status is recorded in [BASELINE_0_5_1.md](./report/BASELINE_0_5_1.md).
+For `v0.6.0`, public reporting should cite the fresh `custom_v060_cmp_*`, `swe_smoke_c3_v060i`, and `swe_promoted_cmp_v060i_*` artifacts backed by matching manifests and trajectories. Custom remains the low-cost daily regression suite; the fixed SWE-bench Lite subsets are the higher-signal repository-repair smoke and compare lanes. They use checked-in generated official Lite metadata plus local runtime overrides and real `clone -> checkout -> diff -> test` semantics, with optional local mirrors for caching, but they are still a small fixed subset rather than a public full-dataset leaderboard claim.
 
 Archived historical promoted artifacts (v0.4.0 baseline, Custom results against the original 21-task suite):
 
@@ -212,7 +240,7 @@ Notes:
 
 - `results/`, `trajectories/`, and `memory/` are local runtime outputs and are ignored by Git.
 - For resumed runs, treat final `results/*.json` files as the metric source of truth.
-- `*_run_manifest.json` captures both the preset `agent_config` and any runtime `experiment_config` overrides.
+- `*_run_manifest.json` captures both the preset `agent_config` and any runtime `experiment_config` overrides, plus `run_id`, `workspace_path`, `workspace_mode`, `task_ids`, and benchmark-specific metadata such as the SWE-bench Lite subset manifest hash and source mode.
 - Trajectory files are primarily for debugging, failure inspection, and taxonomy analysis.
 
 ## Repository Structure

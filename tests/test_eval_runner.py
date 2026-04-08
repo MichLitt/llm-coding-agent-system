@@ -1,7 +1,9 @@
+import json
 from types import MethodType
 
 import pytest
 
+from coder_agent.config import cfg
 from coder_agent.eval.metrics import EvalResult
 from coder_agent.eval.runner import EvalRunner, TaskSpec
 
@@ -70,11 +72,11 @@ def _result(task_id: str, config_label: str = "eval") -> EvalResult:
 
 def test_run_suite_writes_checkpoint_and_resume_skips_completed(tmp_path):
     tasks = [TaskSpec(task_id=task_id, description=task_id) for task_id in ("task_a", "task_b", "task_c")]
-    runner = EvalRunner(agent_factory=lambda _: DummyAgent(), output_dir=tmp_path)
+    runner = EvalRunner(agent_factory=lambda _, __: DummyAgent(), output_dir=tmp_path)
 
     calls: list[str] = []
 
-    def interrupted_run_task(self, task, agent, config_label=""):
+    def interrupted_run_task(self, task, agent, config_label="", workspace=None, run_id=None):
         calls.append(task.task_id)
         if task.task_id == "task_b":
             raise KeyboardInterrupt("stop after checkpoint")
@@ -100,10 +102,10 @@ def test_run_suite_writes_checkpoint_and_resume_skips_completed(tmp_path):
     assert '"completed_task_ids": [' in manifest
     assert "task_a" in manifest
 
-    runner_resume = EvalRunner(agent_factory=lambda _: DummyAgent(), output_dir=tmp_path)
+    runner_resume = EvalRunner(agent_factory=lambda _, __: DummyAgent(), output_dir=tmp_path)
     resumed_calls: list[str] = []
 
-    def resumed_run_task(self, task, agent, config_label=""):
+    def resumed_run_task(self, task, agent, config_label="", workspace=None, run_id=None):
         resumed_calls.append(task.task_id)
         return _result(task.task_id, config_label)
 
@@ -123,7 +125,7 @@ def test_run_suite_writes_checkpoint_and_resume_skips_completed(tmp_path):
 
 def test_run_suite_without_resume_clears_old_checkpoint(tmp_path):
     tasks = [TaskSpec(task_id="fresh_task", description="fresh")]
-    runner = EvalRunner(agent_factory=lambda _: DummyAgent(), output_dir=tmp_path)
+    runner = EvalRunner(agent_factory=lambda _, __: DummyAgent(), output_dir=tmp_path)
 
     (tmp_path / "fresh.jsonl").write_text(
         '{"task_id":"stale","success":true,"benchmark_passed":true,'
@@ -136,7 +138,7 @@ def test_run_suite_without_resume_clears_old_checkpoint(tmp_path):
     (tmp_path / "fresh.json").write_text("[]", encoding="utf-8")
     (tmp_path / "fresh_run_manifest.json").write_text("{}", encoding="utf-8")
 
-    def fake_run_task(self, task, agent, config_label=""):
+    def fake_run_task(self, task, agent, config_label="", workspace=None, run_id=None):
         return _result(task.task_id, config_label)
 
     runner.run_task = MethodType(fake_run_task, runner)
@@ -163,7 +165,7 @@ def test_run_task_routes_stop_gate_and_auto_complete_independently(tmp_path):
     )
 
     gate_agent = DummyAgent({"verification_gate": True})
-    runner = EvalRunner(agent_factory=lambda _: gate_agent, output_dir=tmp_path)
+    runner = EvalRunner(agent_factory=lambda _, __: gate_agent, output_dir=tmp_path)
     result = runner.run_task(task, gate_agent, config_label="c6")
 
     assert result.success is True
@@ -184,7 +186,7 @@ def test_run_task_routes_stop_gate_and_auto_complete_independently(tmp_path):
 def test_run_task_passes_task_level_max_steps(tmp_path):
     task = TaskSpec(task_id="custom_task", description="fix task", max_steps=7)
     agent = DummyAgent()
-    runner = EvalRunner(agent_factory=lambda _: agent, output_dir=tmp_path)
+    runner = EvalRunner(agent_factory=lambda _, __: agent, output_dir=tmp_path)
 
     runner.run_task(task, agent, config_label="c6")
 
@@ -194,9 +196,9 @@ def test_run_task_passes_task_level_max_steps(tmp_path):
 def test_run_suite_closes_agent_on_success(tmp_path):
     agent = DummyAgent()
     tasks = [TaskSpec(task_id="task_a", description="task_a")]
-    runner = EvalRunner(agent_factory=lambda _: agent, output_dir=tmp_path)
+    runner = EvalRunner(agent_factory=lambda _, __: agent, output_dir=tmp_path)
 
-    def fake_run_task(self, task, current_agent, config_label=""):
+    def fake_run_task(self, task, current_agent, config_label="", workspace=None, run_id=None):
         assert current_agent is agent
         return _result(task.task_id, config_label)
 
@@ -216,9 +218,9 @@ def test_run_suite_closes_agent_on_success(tmp_path):
 def test_run_suite_closes_agent_on_exception(tmp_path):
     agent = DummyAgent()
     tasks = [TaskSpec(task_id=task_id, description=task_id) for task_id in ("task_a", "task_b")]
-    runner = EvalRunner(agent_factory=lambda _: agent, output_dir=tmp_path)
+    runner = EvalRunner(agent_factory=lambda _, __: agent, output_dir=tmp_path)
 
-    def interrupted_run_task(self, task, current_agent, config_label=""):
+    def interrupted_run_task(self, task, current_agent, config_label="", workspace=None, run_id=None):
         assert current_agent is agent
         if task.task_id == "task_b":
             raise KeyboardInterrupt("stop")
@@ -257,7 +259,7 @@ def test_run_suite_manifest_includes_git_and_config_fingerprints(tmp_path, monke
     )
 
     tasks = [TaskSpec(task_id="task_a", description="task_a")]
-    runner = EvalRunner(agent_factory=lambda _: DummyAgent(), output_dir=tmp_path)
+    runner = EvalRunner(agent_factory=lambda _, __: DummyAgent(), output_dir=tmp_path)
     runner.run_suite(
         tasks,
         config_label="manifest_demo",
@@ -278,3 +280,166 @@ def test_run_suite_manifest_includes_git_and_config_fingerprints(tmp_path, monke
     assert '"experiment_config_sha256":' in manifest
     assert '"history_compaction_mode": "semantic"' in manifest
     assert '"memory_lookup_mode": "similarity"' in manifest
+    assert '"run_id":' in manifest
+    assert '"workspace_mode": "per_run_v1"' in manifest
+    assert '"workspace_path":' in manifest
+    assert '"task_ids": [' in manifest
+
+
+def test_run_suite_passes_run_workspace_to_agent_factory(tmp_path):
+    captured_workspaces = []
+    tasks = [TaskSpec(task_id="task_a", description="task_a")]
+    runner = EvalRunner(
+        agent_factory=lambda _, workspace: captured_workspaces.append(workspace) or DummyAgent(),
+        output_dir=tmp_path,
+    )
+
+    runner._allocate_run_id = lambda: "20260407120000-aaaabbbb"
+    runner.run_suite(tasks, config_label="c4_lane", benchmark_name="custom", preset="C4", verbose=False)
+
+    assert captured_workspaces == [cfg.agent.workspace.resolve() / "c4_lane" / "20260407120000-aaaabbbb"]
+
+
+def test_run_suite_allocates_distinct_run_workspaces_for_non_resume_runs(tmp_path):
+    captured_workspaces = []
+    tasks = [TaskSpec(task_id="task_a", description="task_a")]
+    runner = EvalRunner(
+        agent_factory=lambda _, workspace: captured_workspaces.append(workspace) or DummyAgent(),
+        output_dir=tmp_path,
+    )
+    run_ids = iter(["20260407120000-aaaabbbb", "20260407120000-ccccdddd"])
+    runner._allocate_run_id = lambda: next(run_ids)
+
+    runner.run_suite(tasks, config_label="repeat_demo", benchmark_name="custom", preset="C4", verbose=False)
+    runner.run_suite(tasks, config_label="repeat_demo", benchmark_name="custom", preset="C4", verbose=False)
+
+    assert len(captured_workspaces) == 2
+    assert captured_workspaces[0] != captured_workspaces[1]
+
+
+def test_run_task_uses_explicit_workspace_for_prepare_and_checks(tmp_path, monkeypatch):
+    task = TaskSpec(task_id="custom_task", description="fix task", verification=[{"cmd": "python -m pytest"}])
+    agent = DummyAgent()
+    runner = EvalRunner(agent_factory=lambda _, __: agent, output_dir=tmp_path)
+    explicit_workspace = tmp_path / "runs" / "demo"
+    captured = {}
+
+    monkeypatch.setattr(
+        "coder_agent.eval.runner.prepare_workspace",
+        lambda setup_files, workspace: captured.setdefault("prepare", workspace),
+    )
+    monkeypatch.setattr(
+        "coder_agent.eval.runner.build_verification_hook",
+        lambda task_spec, workspace: captured.setdefault("hook", workspace) or None,
+    )
+    def fake_run_custom_checks(checks, workspace):
+        captured["checks"] = workspace
+        return 1
+
+    monkeypatch.setattr(runner, "_run_custom_checks", fake_run_custom_checks)
+
+    runner.run_task(task, agent, config_label="demo", workspace=explicit_workspace, run_id="run-1")
+
+    assert captured["prepare"] == explicit_workspace
+    assert captured["hook"] == explicit_workspace
+    assert captured["checks"] == explicit_workspace
+
+
+def test_run_suite_resume_legacy_manifest_fails(tmp_path):
+    tasks = [TaskSpec(task_id="task_a", description="task_a")]
+    runner = EvalRunner(agent_factory=lambda _, __: DummyAgent(), output_dir=tmp_path)
+    (tmp_path / "legacy_run_manifest.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="legacy eval run"):
+        runner.run_suite(
+            tasks,
+            config_label="legacy",
+            benchmark_name="custom",
+            preset="C4",
+            resume=True,
+            verbose=False,
+        )
+
+
+def test_run_suite_resume_rejects_hash_mismatch(tmp_path):
+    tasks = [TaskSpec(task_id="task_a", description="task_a")]
+    runner = EvalRunner(agent_factory=lambda _, __: DummyAgent(), output_dir=tmp_path)
+    runner._allocate_run_id = lambda: "20260407120000-aaaabbbb"
+    runner.run_suite(
+        tasks,
+        config_label="hash_demo",
+        benchmark_name="custom",
+        preset="C4",
+        experiment_config={"memory_lookup_mode": "similarity"},
+        resume=False,
+        verbose=False,
+    )
+
+    with pytest.raises(ValueError, match="runtime_experiment_config_sha256 mismatch"):
+        runner.run_suite(
+            tasks,
+            config_label="hash_demo",
+            benchmark_name="custom",
+            preset="C4",
+            experiment_config={"memory_lookup_mode": "recent"},
+            resume=True,
+            verbose=False,
+        )
+
+
+def test_run_suite_resume_rejects_llm_model_mismatch(tmp_path):
+    tasks = [TaskSpec(task_id="task_a", description="task_a")]
+    runner = EvalRunner(agent_factory=lambda _, __: DummyAgent(), output_dir=tmp_path)
+    runner._allocate_run_id = lambda: "20260407120000-aaaabbbb"
+    runner.run_suite(tasks, config_label="llm_demo", benchmark_name="custom", preset="C4", verbose=False)
+
+    manifest_path = tmp_path / "llm_demo_run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["llm_model"] = "different-model"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="llm_model mismatch"):
+        runner.run_suite(tasks, config_label="llm_demo", benchmark_name="custom", preset="C4", resume=True, verbose=False)
+
+
+def test_run_suite_resume_rejects_llm_transport_mismatch(tmp_path):
+    tasks = [TaskSpec(task_id="task_a", description="task_a")]
+    runner = EvalRunner(agent_factory=lambda _, __: DummyAgent(), output_dir=tmp_path)
+    runner._allocate_run_id = lambda: "20260407120000-aaaabbbb"
+    runner.run_suite(tasks, config_label="transport_demo", benchmark_name="custom", preset="C4", verbose=False)
+
+    manifest_path = tmp_path / "transport_demo_run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["llm_transport"] = "different-transport"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="llm_transport mismatch"):
+        runner.run_suite(
+            tasks,
+            config_label="transport_demo",
+            benchmark_name="custom",
+            preset="C4",
+            resume=True,
+            verbose=False,
+        )
+
+
+def test_run_suite_resume_warns_on_workspace_path_mismatch(tmp_path):
+    tasks = [TaskSpec(task_id="task_a", description="task_a")]
+    captured_workspaces = []
+    runner = EvalRunner(
+        agent_factory=lambda _, workspace: captured_workspaces.append(workspace) or DummyAgent(),
+        output_dir=tmp_path,
+    )
+    runner._allocate_run_id = lambda: "20260407120000-aaaabbbb"
+    runner.run_suite(tasks, config_label="warn_demo", benchmark_name="custom", preset="C4", verbose=False)
+
+    manifest_path = tmp_path / "warn_demo_run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["workspace_path"] = str(tmp_path / "unexpected" / "workspace")
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    with pytest.warns(UserWarning, match="workspace_path does not match"):
+        runner.run_suite(tasks, config_label="warn_demo", benchmark_name="custom", preset="C4", resume=True, verbose=False)
+
+    assert captured_workspaces[-1] == cfg.agent.workspace.resolve() / "warn_demo" / "20260407120000-aaaabbbb"

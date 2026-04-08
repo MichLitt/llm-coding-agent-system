@@ -118,6 +118,8 @@ async def run_verification_hook(
         verification_result = await verification_result
     return verification_result
 
+from coder_agent.config import cfg
+
 
 async def seed_run_context(agent: Any, state: Any, user_input: str) -> None:
     state.exception_stage = "history.add_user"
@@ -142,7 +144,7 @@ async def seed_run_context(agent: Any, state: Any, user_input: str) -> None:
 
     if agent.memory:
         state.exception_stage = "memory.lookup"
-        state.project_id = agent.memory.get_or_create_project(cfg.agent.workspace)
+        state.project_id = agent.memory.get_or_create_project(agent.workspace)
         lookup_mode = _runtime_setting(agent, "memory_lookup_mode", cfg.agent.memory_lookup_mode)
         if lookup_mode == "similarity":
             similar = agent.memory.get_similar_tasks(state.project_id, user_input, n=3)

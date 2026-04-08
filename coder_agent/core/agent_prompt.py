@@ -7,7 +7,7 @@ def _build_system_prompt(
     max_retries: int | None = None,
     workspace: str | None = None,
 ) -> str:
-    workspace = workspace or str(cfg.agent.workspace)
+    workspace = workspace or str(cfg.agent.workspace.resolve())
     max_retries = max_retries if max_retries is not None else cfg.agent.max_retries
 
     if planning_mode == "direct":
@@ -67,6 +67,7 @@ Guidelines:
   appropriate tool, then run it to verify.
 - After writing or editing code, run it (or run tests) to verify correctness.
 - If a command fails, read the error carefully and fix the root cause.
+- If external verification fails after you try to stop, do not summarize again. Read the first failing test or traceback, make one targeted change, and rerun verification with tools.
 - After the first failing test run, read the failure output and the relevant file, then change either the implementation or the tests, not both in the same step unless the failure clearly requires both.
 - If you created both implementation and tests, avoid changing the public API after the first test run unless the task explicitly requires it.
 - When ALL required tasks are done and verified (tests pass, files created, etc.),

@@ -1,0 +1,98 @@
+{
+  "dataset_name": "princeton-nlp/SWE-bench_Lite",
+  "dataset_version": "6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2",
+  "manifest_version": 1,
+  "source_mode": "official_lite_generated_v1",
+  "source_source": "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Lite/tree/6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2",
+  "source_revision": "6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2",
+  "generated_at": "2026-04-07T00:00:00Z",
+  "generator_version": "0.6.0c",
+  "tasks": [
+    {
+      "task_id": "pylint-dev__pylint-5859",
+      "instance_id": "pylint-dev__pylint-5859",
+      "repo": "pylint-dev/pylint",
+      "repo_url": "https://github.com/pylint-dev/pylint.git",
+      "base_commit": "182cc539b8154c0710fcea7e522267e42eba8899",
+      "problem_statement": "\"--notes\" option ignores note tags that are entirely punctuation.\nFix pylint so punctuation-only note tags configured with --notes still trigger W0511 fixme warnings.",
+      "environment_setup_commit": "3b2fbaec045697d53bdd4435e59dbfc2b286df4b",
+      "fail_to_pass": [
+        "tests/checkers/unittest_misc.py::TestFixme::test_non_alphanumeric_codetag"
+      ],
+      "pass_to_pass": [
+        "tests/checkers/unittest_misc.py::TestFixme::test_fixme_with_message",
+        "tests/checkers/unittest_misc.py::TestFixme::test_todo_without_message",
+        "tests/checkers/unittest_misc.py::TestFixme::test_xxx_without_space",
+        "tests/checkers/unittest_misc.py::TestFixme::test_xxx_middle",
+        "tests/checkers/unittest_misc.py::TestFixme::test_without_space_fixme",
+        "tests/checkers/unittest_misc.py::TestFixme::test_absent_codetag",
+        "tests/checkers/unittest_misc.py::TestFixme::test_other_present_codetag",
+        "tests/checkers/unittest_misc.py::TestFixme::test_issue_2321_should_not_trigger",
+        "tests/checkers/unittest_misc.py::TestFixme::test_issue_2321_should_trigger",
+        "tests/checkers/unittest_misc.py::TestFixme::test_dont_trigger_on_todoist"
+      ],
+      "test_patch": "diff --git a/tests/checkers/unittest_misc.py b/tests/checkers/unittest_misc.py\nindex 23e19a9d0..dae07efae 100644\n--- a/tests/checkers/unittest_misc.py\n+++ b/tests/checkers/unittest_misc.py\n@@ -54,6 +54,16 @@ class TestFixme(CheckerTestCase):\n         ):\n             self.checker.process_tokens(_tokenize_str(code))\n \n+    @set_config(notes=[\"???\"])\n+    def test_non_alphanumeric_codetag(self) -> None:\n+        code = \"\"\"a = 1\n+                #???\n+                \"\"\"\n+        with self.assertAddsMessages(\n+            MessageTest(msg_id=\"fixme\", line=2, args=\"???\", col_offset=17)\n+        ):\n+            self.checker.process_tokens(_tokenize_str(code))\n+\n     @set_config(notes=[])\n     def test_absent_codetag(self) -> None:\n"
+    },
+    {
+      "task_id": "sympy__sympy-22005",
+      "instance_id": "sympy__sympy-22005",
+      "repo": "sympy/sympy",
+      "repo_url": "https://github.com/sympy/sympy.git",
+      "base_commit": "2c83657ff1c62fc2761b639469fdac7f7561a72a",
+      "problem_statement": "Fix solve_poly_system so infinite-solution requests involving extra generators raise NotImplementedError instead of returning incomplete tuples.",
+      "environment_setup_commit": "f9a6f50ec0c74d935c50a6e9c9b2cb0469570d91",
+      "fail_to_pass": [
+        "test_solve_poly_system"
+      ],
+      "pass_to_pass": [
+        "test_solve_biquadratic",
+        "test_solve_triangulated"
+      ],
+      "test_patch": ""
+    },
+    {
+      "task_id": "pytest-dev__pytest-7220",
+      "instance_id": "pytest-dev__pytest-7220",
+      "repo": "pytest-dev/pytest",
+      "repo_url": "https://github.com/pytest-dev/pytest.git",
+      "base_commit": "56bf819c2f4eaf8b36bd8c42c06bb59d5a3bfc0f",
+      "problem_statement": "Fix pytest node path reporting so failures remain relative to the original root directory even when fixtures change cwd.",
+      "environment_setup_commit": "678c1a0745f1cf175c442c719906a1f13e496910",
+      "fail_to_pass": [
+        "testing/test_nodes.py::test_failure_with_changed_cwd"
+      ],
+      "pass_to_pass": [
+        "testing/test_nodes.py::test_ischildnode[--True]",
+        "testing/test_nodes.py::test_ischildnode[-foo-True]",
+        "testing/test_nodes.py::test_ischildnode[-foo/bar-True]",
+        "testing/test_nodes.py::test_ischildnode[-foo/bar::TestBaz-True]",
+        "testing/test_nodes.py::test_ischildnode[foo-food-False]",
+        "testing/test_nodes.py::test_ischildnode[foo/bar::TestBaz-foo/bar-False]",
+        "testing/test_nodes.py::test_ischildnode[foo/bar::TestBaz-foo/bar::TestBop-False]",
+        "testing/test_nodes.py::test_ischildnode[foo/bar-foo/bar::TestBop-True]",
+        "testing/test_nodes.py::test_node_from_parent_disallowed_arguments",
+        "testing/test_nodes.py::test__check_initialpaths_for_relpath",
+        "testing/test_nodes.py::test_std_warn_not_pytestwarning"
+      ],
+      "test_patch": ""
+    },
+    {
+      "task_id": "sphinx-doc__sphinx-8273",
+      "instance_id": "sphinx-doc__sphinx-8273",
+      "repo": "sphinx-doc/sphinx",
+      "repo_url": "https://github.com/sphinx-doc/sphinx.git",
+      "base_commit": "88b81a06eb635a1596617f8971fa97a84c069e93",
+      "problem_statement": "Update Sphinx manpage generation so built man pages are emitted inside section directories such as man1/ and man3/ instead of a flat man/ directory.",
+      "environment_setup_commit": "3b85187ffa3401e88582073c23188c147857a8a3",
+      "fail_to_pass": [
+        "tests/test_build_manpage.py::test_man_make_section_directory"
+      ],
+      "pass_to_pass": [
+        "tests/test_build_manpage.py::test_all",
+        "tests/test_build_manpage.py::test_default_man_pages",
+        "tests/test_build_manpage.py::test_rubric"
+      ],
+      "test_patch": ""
+    }
+  ]
+}

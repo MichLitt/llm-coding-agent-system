@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 
 from coder_agent.config import cfg
 
@@ -11,6 +12,13 @@ _ERROR_GUIDANCE = {
     "LogicError": "There is a logic or workflow error. Read the first failure block carefully, then fix the root cause before making broad rewrites.",
     "ToolError": "A tool call failed. Re-check tool arguments, relative paths, line ranges, and edit anchors before retrying. If an edit target was not found, read the file again and issue a more precise edit.",
 }
+
+
+def _first_test_target(text: str) -> str | None:
+    match = re.search(r"([A-Za-z0-9_./-]+\.py::[^\s,;]+)", text)
+    if match:
+        return match.group(1)
+    return None
 
 
 def _looks_like_pytest_collection_failure(text: str) -> bool:
@@ -133,11 +141,16 @@ def extract_import_error_details(stderr: str) -> dict[str, str | None]:
     return {"module_name": module_name, "source_file": source_file}
 
 
-def build_import_error_guidance(stderr_text: str, *, repeated: bool = False) -> str:
+def build_import_error_guidance(
+    stderr_text: str,
+    *,
+    repeated: bool = False,
+    workspace: Path | None = None,
+) -> str:
     details = extract_import_error_details(stderr_text)
     module_name = details.get("module_name")
     source_file = details.get("source_file")
-    workspace = cfg.agent.workspace
+    workspace = Path(workspace or cfg.agent.workspace).resolve()
 
     local_candidates: list[str] = []
     if module_name:
@@ -194,6 +207,7 @@ def build_error_guidance(
     stderr_text: str,
     *,
     repeated: bool = False,
+    workspace: Path | None = None,
 ) -> str:
     if _looks_like_pytest_collection_failure(stderr_text):
         hint = (
@@ -214,10 +228,54 @@ def build_error_guidance(
             hint += " This same API mismatch repeated. Stop rewriting both sides and fix the specific call signature."
         return hint
     if error_type == "ImportError":
-        return build_import_error_guidance(stderr_text, repeated=repeated)
+        return build_import_error_guidance(stderr_text, repeated=repeated, workspace=workspace)
     hint = _ERROR_GUIDANCE.get(error_type, "")
     if error_type == "AssertionError" and hint:
         hint += " Avoid brittle whitespace-only assertions unless the task explicitly requires exact formatting. If you wrote both tests and code, prefer keeping one stable API and fixing the implementation first."
     if repeated and hint and error_type != "ImportError":
         hint += " This same failure repeated. Re-read the current file and failure output before trying another broad rewrite."
     return hint
+
+
+def build_verification_guidance(
+    summary: str,
+    *,
+    repeated: bool = False,
+    counted_attempt: bool = False,
+) -> str:
+    summary = summary.strip() or "Verification failed."
+    target = _first_test_target(summary)
+    test_file = target.split("::", 1)[0] if target and "::" in target else None
+    excerpt = extract_failure_excerpt(summary, max_lines=5)
+
+    lines = ["External verification failed."]
+    if target:
+        lines.append(f"Start with failing target: `{target}`.")
+    elif test_file:
+        lines.append(f"Start with failing test file: `{test_file}`.")
+
+    if "pass_to_pass regressed" in summary:
+        lines.append("You introduced a regression. Fix the first regressed test before making broader changes.")
+    elif "fail_to_pass still failing" in summary:
+        lines.append("The intended fix is still missing. Read the failing test and the most likely implementation file before editing.")
+    else:
+        lines.append("Read the first failing test and the relevant implementation before editing.")
+
+    if excerpt:
+        lines.append("First failure excerpt:")
+        lines.append(excerpt)
+
+    lines.append(
+        "Next action: use tools to inspect files, make one targeted edit with write_file, then rerun the relevant command with run_command."
+    )
+    lines.append("Do not stop with a summary or explanation before you have written code or run a command.")
+
+    if not counted_attempt:
+        lines.append(
+            "This completion did not count as a repair attempt because you have not made a write/run repair step since the last verification failure."
+        )
+    if repeated:
+        lines.append(
+            "This same verification failure repeated. Do not summarize again; switch to reading the failing test and making a concrete change."
+        )
+    return "\n\n".join(lines)

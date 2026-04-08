@@ -51,6 +51,11 @@ class LoopState:
     project_id: str | None = None
     traj_id: str | None = None
     verification_attempts: int = 0
+    verification_failures: int = 0
+    verification_recovery_action_seen: bool = False
+    no_tool_completion_verification_failures: int = 0
+    last_verification_failure_signature: str | None = None
+    consecutive_verification_failures: int = 0
     exception_stage: str = "init"
     awaiting_retry_verification: bool = False
     retry_edit_target: str | None = None
@@ -367,6 +372,8 @@ async def run_agent_loop(
                 parse_errors=turn.parse_errors,
                 summary_cls=ToolBatchSummary,
             )
+            if any(tool_use["name"] in {"write_file", "run_command"} for tool_use in turn.tool_uses):
+                state.verification_recovery_action_seen = True
             if any(tool_use["name"] == "run_command" for tool_use in turn.tool_uses):
                 state.awaiting_retry_verification = False
                 state.retry_edit_target = None

@@ -18,7 +18,12 @@ from .factory import (
 
 
 @click.command(name="eval")
-@click.option("--benchmark", type=click.Choice(["humaneval", "custom"]), default="custom", help="Which benchmark to run")
+@click.option(
+    "--benchmark",
+    type=click.Choice(["humaneval", "custom", "swebench"]),
+    default="custom",
+    help="Which benchmark to run",
+)
 @click.option("--task-dir", default=None, type=click.Path(), help="Directory with custom task YAML (default: built-in)")
 @click.option("--output", default=None, type=click.Path(), help="Output directory for results")
 @click.option("--limit", default=0, type=int, help="Limit number of tasks (0 = all)")
@@ -32,7 +37,14 @@ from .factory import (
     ),
 )
 @click.option("--preset", type=click.Choice(["default", "C1", "C2", "C3", "C4", "C5", "C6"]), default="default", help="Single-run config preset to use")
-@click.option("--resume", is_flag=True, help="Resume from checkpoint files for this config label")
+@click.option(
+    "--resume",
+    is_flag=True,
+    help=(
+        "Resume this eval run from checkpoint artifacts: skip completed tasks and continue remaining tasks. "
+        "Does not restore prior workspace state, conversation history, or loop state."
+    ),
+)
 @click.option("--config-label", default="eval", help="Label for this run (used in output filenames)")
 @click.option(
     "--experiment-config",
@@ -40,6 +52,12 @@ from .factory import (
     help='JSON object passed to make_agent() as runtime experiment config, e.g. \'{"memory_lookup_mode": "similarity"}\'.',
 )
 @click.option("--llm-profile", default=None, help="Named LLM profile from config.yaml llm.profiles")
+@click.option(
+    "--swebench-subset",
+    type=click.Choice(["smoke", "promoted"]),
+    default="smoke",
+    help="Version-pinned official SWE-bench Lite subset to run (only used with --benchmark swebench)",
+)
 def eval_command(
     benchmark: str,
     task_dir: str | None,
@@ -52,6 +70,7 @@ def eval_command(
     config_label: str,
     experiment_config: str | None,
     llm_profile: str | None,
+    swebench_subset: str,
 ) -> None:
     if compare and preset != "default":
         raise click.UsageError("--compare and --preset are mutually exclusive")
@@ -60,9 +79,10 @@ def eval_command(
     tstore = TrajectoryStore(cfg.eval.trajectory_dir)
     parsed_experiment_config = _parse_experiment_config(experiment_config)
 
-    def agent_factory(agent_cfg: dict) -> Agent:
+    def agent_factory(agent_cfg: dict, workspace: Path) -> Agent:
         return make_agent(
             agent_cfg,
+            workspace=workspace,
             experiment_id=config_label,
             trajectory_store=tstore,
             config_label=config_label,
@@ -94,6 +114,11 @@ def eval_command(
             for t in he_tasks
         ]
         click.echo(f"Loaded {len(tasks)} HumanEval tasks")
+    elif benchmark == "swebench":
+        from coder_agent.eval.benchmarks.swebench.loader import load_swebench_tasks
+
+        tasks = load_swebench_tasks(subset=swebench_subset)
+        click.echo(f"Loaded {len(tasks)} SWE-bench tasks from subset={swebench_subset}")
     else:
         from coder_agent.eval.benchmarks.custom.loader import load_custom_tasks
 
@@ -126,13 +151,14 @@ def eval_command(
         label_map = {label: f"{config_label}_{label}" if config_label else label for label in labels}
         configs = {label_map[label]: resolve_agent_config(label) for label in labels}
 
-        def agent_factory_compare(agent_cfg: dict) -> Agent:
+        def agent_factory_compare(agent_cfg: dict, workspace: Path) -> Agent:
             experiment_id = next(
                 (name for name, cfg_item in configs.items() if cfg_item == agent_cfg),
                 config_label,
             )
             return make_agent(
                 agent_cfg,
+                workspace=workspace,
                 experiment_id=experiment_id,
                 trajectory_store=tstore,
                 config_label=experiment_id,

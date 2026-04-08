@@ -7,11 +7,12 @@ import re
 import signal
 import subprocess
 import sys
+from pathlib import Path
 
 from coder_agent.config import cfg
+from coder_agent.core.workspace_env import workspace_command_env, workspace_python_executable
 from coder_agent.tools.base import Tool
 
-_WORKSPACE = cfg.agent.workspace
 BLOCKED_PATTERNS: list[str] = cfg.tools.blocked_commands
 
 
@@ -50,7 +51,7 @@ async def _terminate_process_tree(proc: asyncio.subprocess.Process) -> None:
 
 
 class RunCommandTool(Tool):
-    def __init__(self):
+    def __init__(self, workspace: Path | None = None):
         super().__init__(
             name="run_command",
             description="Run a shell command inside the workspace.",
@@ -63,16 +64,16 @@ class RunCommandTool(Tool):
                 "required": ["command"],
             },
         )
+        self.workspace = Path(workspace or cfg.agent.workspace).resolve()
 
     async def execute(self, command: str, timeout: int = 30) -> str:
         if any(p in command for p in BLOCKED_PATTERNS):
             raise RuntimeError("command blocked for safety")
 
-        # Normalize python/pytest invocations to the venv interpreter so that
-        # "python foo.py" and "cd /path && python foo.py" work on systems where
-        # only "python3" is in PATH (e.g. macOS).  The negative lookbehind
-        # (?<![/.\w]) prevents matching path components like /usr/bin/python or
-        # the token python3.
+        # Normalize python/pytest invocations to the workspace interpreter so that
+        # "python foo.py", "python3 foo.py", and "cd /path && pytest" are bound
+        # to the active task-local venv when present. The negative lookbehind
+        # (?<![/.\w]) prevents matching path components like /usr/bin/python.
         #
         # A single-pass alternation regex is used to avoid the interaction bug
         # that occurs with sequential substitutions:
@@ -80,7 +81,7 @@ class RunCommandTool(Tool):
         #                     →(pytest)→  "/venv/python" -m "/venv/python" -m pytest ← BUG
         # By using one regex with alternation (longest match first), each token
         # is replaced exactly once and the replacement text is never re-scanned.
-        _exe = sys.executable
+        _exe = str(workspace_python_executable(self.workspace))
 
         def _replace_python_token(m: re.Match) -> str:
             token = m.group(0)
@@ -88,20 +89,21 @@ class RunCommandTool(Tool):
                 return f'"{_exe}" -m pytest'
             if token == "pytest":
                 return f'"{_exe}" -m pytest'
-            return f'"{_exe}"'  # bare "python"
+            return f'"{_exe}"'  # bare "python" / "python3"
 
         command = re.sub(
-            r'(?<![/.\w])(?:python\s+-m\s+pytest|python|pytest)(?=\s|$)',
+            r'(?<![/.\w])(?:python\s+-m\s+pytest|python3|python|pytest)(?=\s|$)',
             _replace_python_token,
             command,
         )
 
         proc = await asyncio.create_subprocess_shell(
             command,
-            cwd=str(_WORKSPACE),
+            cwd=str(self.workspace),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
+            env=workspace_command_env(self.workspace),
         )
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
