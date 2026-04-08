@@ -7,8 +7,9 @@ CLAUDE.md
 AGENTS.md
 workspace/
 /memory/
-results/
 trajectories/
+results/
+results_mbpp/
 __pycache__/
 *.pyc
 *.db
