@@ -1,4 +1,4 @@
-"""File system tools: read, write/edit, and list directory."""
+"""File system tools: read, write/edit, patch, and list directory."""
 
 from pathlib import Path
 from typing import Any
@@ -135,6 +135,83 @@ class WriteFileTool(Tool):
                 return "Error: old_text not found in file"
             full_path.write_text(content.replace(old_text, new_text, 1), encoding="utf-8")
             return f"Edited: {full_path.relative_to(self.workspace)}"
+        except Exception as e:
+            return f"Error: {e}"
+
+
+class PatchFileTool(Tool):
+    def __init__(self, workspace: Path | None = None):
+        super().__init__(
+            name="patch_file",
+            description="Apply one or more targeted text replacements to an existing file atomically.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "edits": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "old_text": {"type": "string"},
+                                "new_text": {"type": "string"},
+                                "expected_replacements": {"type": "integer", "default": 1},
+                            },
+                            "required": ["old_text", "new_text"],
+                        },
+                    },
+                },
+                "required": ["path", "edits"],
+            },
+        )
+        self.workspace = Path(workspace or cfg.agent.workspace).resolve()
+
+    async def execute(self, path: str, edits: list[dict[str, Any]]) -> str:
+        full_path = _safe_path(self.workspace, path)
+        if full_path is None:
+            return "Error: path escapes workspace"
+        if not full_path.is_file():
+            return f"Error: file not found: {path}"
+        if not edits:
+            return "Error: edits must contain at least one edit"
+
+        try:
+            original_content = full_path.read_text(encoding="utf-8", errors="replace")
+            candidate_content = original_content
+            edit_reports: list[str] = []
+
+            for index, edit in enumerate(edits, start=1):
+                if not isinstance(edit, dict):
+                    return f"Error: edit #{index} must be an object"
+                old_text = str(edit.get("old_text", ""))
+                new_text = str(edit.get("new_text", ""))
+                expected = int(edit.get("expected_replacements", 1))
+                if not old_text:
+                    return f"Error: edit #{index} old_text is required"
+                if expected < 0:
+                    return f"Error: edit #{index} expected_replacements must be >= 0"
+
+                actual_matches = candidate_content.count(old_text)
+                edit_reports.append(
+                    f"edit #{index}: matches={actual_matches}, expected={expected}"
+                )
+                if actual_matches != expected:
+                    return (
+                        f"Error: patch_file edit #{index} match count mismatch for {path} "
+                        f"(actual_matches={actual_matches}, expected_replacements={expected}).\n"
+                        f"Applied edits before failure: {index - 1}/{len(edits)}\n"
+                        + "\n".join(edit_reports)
+                    )
+                if expected > 0:
+                    candidate_content = candidate_content.replace(old_text, new_text, expected)
+
+            full_path.write_text(candidate_content, encoding="utf-8")
+            summary = "\n".join(edit_reports)
+            return (
+                f"Patched: {full_path.relative_to(self.workspace)}\n"
+                f"Applied edits: {len(edits)}/{len(edits)}\n"
+                f"{summary}"
+            )
         except Exception as e:
             return f"Error: {e}"
 

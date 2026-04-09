@@ -156,9 +156,21 @@ def run_swebench_check(task: Any, workspace: Path) -> tuple[int, str | None]:
     fail_to_pass = [str(item) for item in task.metadata.get("fail_to_pass", []) if str(item).strip()]
     pass_to_pass = [str(item) for item in task.metadata.get("pass_to_pass", []) if str(item).strip()]
     test_patch = str(task.metadata.get("test_patch", "") or "")
+    replaceable_overlay_paths = {
+        str(path).strip()
+        for path in (
+            list(task.metadata.get("authorized_test_edit_paths", []) or [])
+            + list(task.metadata.get("verification_files", []) or [])
+        )
+        if str(path).strip()
+    }
 
     try:
-        with verification_overlay(workspace, test_patch=test_patch):
+        with verification_overlay(
+            workspace,
+            test_patch=test_patch,
+            replaceable_paths=replaceable_overlay_paths,
+        ):
             suite_passed, suite_message = run_swebench_test_command(test_command, workspace)
 
             if not fail_to_pass and not pass_to_pass:

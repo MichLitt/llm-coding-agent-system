@@ -87,6 +87,17 @@ def _write_file_response(path: str) -> dict:
     }
 
 
+def _patch_file_response(path: str) -> dict:
+    return {
+        "content": [{"type": "text", "text": f"<think>patch {path}</think>"}],
+        "tool_uses": [{
+            "id": f"patch_{path}",
+            "name": "patch_file",
+            "input": {"path": path, "edits": [{"old_text": "old", "new_text": "new"}]},
+        }],
+    }
+
+
 def _final_response(text: str = "done") -> dict:
     return {
         "content": [{"type": "text", "text": text}],
@@ -464,6 +475,179 @@ async def test_retry_policy_blocks_switching_files_before_rerun(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_verification_recovery_blocks_unlisted_test_edit(monkeypatch):
+    executed_paths: list[str] = []
+
+    async def fake_execute_tools(tool_calls, tool_dict):
+        executed_paths.extend(call["input"].get("path", "") for call in tool_calls)
+        return [{
+            "type": "tool_result",
+            "tool_use_id": tool_calls[0]["id"],
+            "content": "Written",
+        }]
+
+    monkeypatch.setattr(agent_module, "execute_tools", fake_execute_tools)
+    agent = _agent(
+        FakeClient([
+            _final_response("premature summary"),
+            _write_file_response("tests/test_service.py"),
+        ]),
+        {"correction": True},
+        runtime_config={"prefer_expected_patch_targets": True},
+    )
+
+    result = await agent._loop(
+        "task",
+        task_metadata={
+            "benchmark": "swebench",
+            "expected_patch_targets": ["app/service.py", "tests/test_service.py"],
+            "authorized_test_edit_paths": [],
+            "verification_files": [],
+        },
+        verification_hook=lambda: VerificationResult(False, "fail_to_pass still failing: app/service.py::bug_case"),
+        max_steps=2,
+    )
+
+    assert result.termination_reason == TERMINATION_MAX_STEPS
+    assert executed_paths == []
+    user_messages = [msg["content"] for msg in agent.history.messages if msg["role"] == "user"]
+    assert any("Verification recovery blocked an unlisted test edit" in message for message in user_messages)
+
+
+@pytest.mark.asyncio
+async def test_verification_recovery_allows_authorized_test_edit(monkeypatch):
+    executed_paths: list[str] = []
+    run_calls = {"count": 0}
+
+    async def fake_execute_tools(tool_calls, tool_dict):
+        first_tool = tool_calls[0]["name"]
+        if first_tool == "run_command":
+            run_calls["count"] += 1
+            return [{
+                "type": "tool_result",
+                "tool_use_id": "call_run",
+                "content": "Exit code: 0\nSTDOUT:\n\nSTDERR:\n",
+            }]
+        executed_paths.extend(call["input"].get("path", "") for call in tool_calls)
+        return [{
+            "type": "tool_result",
+            "tool_use_id": tool_calls[0]["id"],
+            "content": "Patched",
+        }]
+
+    monkeypatch.setattr(agent_module, "execute_tools", fake_execute_tools)
+    client = FakeClient([
+        _final_response("premature summary"),
+        _patch_file_response("tests/test_service.py"),
+        _tool_call_response(),
+        _final_response("done"),
+    ])
+    agent = _agent(client, {"correction": True})
+    attempts = {"count": 0}
+
+    def verification_hook():
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return VerificationResult(False, "fail_to_pass still failing: tests/test_service.py::test_case")
+        return VerificationResult(True, "passed")
+
+    result = await agent._loop(
+        "task",
+        task_metadata={
+            "benchmark": "swebench",
+            "expected_patch_targets": ["app/service.py", "tests/test_service.py"],
+            "authorized_test_edit_paths": ["tests/test_service.py"],
+            "verification_files": [],
+        },
+        verification_hook=verification_hook,
+        max_steps=4,
+    )
+
+    assert result.success is True
+    assert executed_paths == ["tests/test_service.py"]
+    assert run_calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_verification_recovery_only_allows_current_failing_test_file(monkeypatch):
+    executed_paths: list[str] = []
+
+    async def fake_execute_tools(tool_calls, tool_dict):
+        executed_paths.extend(call["input"].get("path", "") for call in tool_calls)
+        return [{
+            "type": "tool_result",
+            "tool_use_id": tool_calls[0]["id"],
+            "content": "Written",
+        }]
+
+    monkeypatch.setattr(agent_module, "execute_tools", fake_execute_tools)
+    agent = _agent(
+        FakeClient([
+            _final_response("premature summary"),
+            _write_file_response("tests/other_test_service.py"),
+        ]),
+        {"correction": True},
+    )
+
+    result = await agent._loop(
+        "task",
+        task_metadata={
+            "benchmark": "swebench",
+            "expected_patch_targets": ["app/service.py", "tests/test_service.py"],
+            "authorized_test_edit_paths": [],
+            "verification_files": [],
+        },
+        verification_hook=lambda: VerificationResult(False, "fail_to_pass still failing: tests/test_service.py::test_case"),
+        max_steps=2,
+    )
+
+    assert result.termination_reason == TERMINATION_MAX_STEPS
+    assert executed_paths == []
+    user_messages = [msg["content"] for msg in agent.history.messages if msg["role"] == "user"]
+    assert any("Attempted test edit(s): tests/other_test_service.py" in message for message in user_messages)
+
+
+@pytest.mark.asyncio
+async def test_verification_recovery_caps_impl_edits_before_rerun(monkeypatch):
+    executed_paths: list[str] = []
+
+    async def fake_execute_tools(tool_calls, tool_dict):
+        executed_paths.extend(call["input"].get("path", "") for call in tool_calls)
+        return [{
+            "type": "tool_result",
+            "tool_use_id": tool_calls[0]["id"],
+            "content": "Written",
+        }]
+
+    monkeypatch.setattr(agent_module, "execute_tools", fake_execute_tools)
+    agent = _agent(
+        FakeClient([
+            _final_response("premature summary"),
+            _write_file_response("app/one.py"),
+            _write_file_response("app/two.py"),
+            _write_file_response("app/three.py"),
+        ]),
+        {"correction": True},
+        runtime_config={"max_impl_edit_files_per_verification_recovery": 2},
+    )
+
+    result = await agent._loop(
+        "task",
+        task_metadata={
+            "benchmark": "swebench",
+            "expected_patch_targets": ["app/one.py", "app/two.py", "app/three.py"],
+        },
+        verification_hook=lambda: VerificationResult(False, "still failing"),
+        max_steps=4,
+    )
+
+    assert result.termination_reason == TERMINATION_MAX_STEPS
+    assert executed_paths == ["app/one.py", "app/two.py"]
+    user_messages = [msg["content"] for msg in agent.history.messages if msg["role"] == "user"]
+    assert any("Verification recovery edit cap reached" in message for message in user_messages)
+
+
+@pytest.mark.asyncio
 async def test_unknown_tool_remains_hard_failure():
     agent = _agent(FakeClient([_unknown_tool_call_response()]), {"correction": True})
 
@@ -772,6 +956,19 @@ def test_build_verification_guidance_mentions_target_and_no_summary():
 
     assert "tests/checkers/unittest_misc.py::TestFixme::test_non_alphanumeric_codetag" in guidance
     assert "Do not stop with a summary" in guidance
+
+
+def test_build_verification_guidance_escalates_repeated_completion_without_action():
+    guidance = build_verification_guidance(
+        "fail_to_pass still failing: tests/checkers/unittest_misc.py::TestFixme::test_non_alphanumeric_codetag",
+        counted_attempt=False,
+        preferred_patch_targets=["pylint/checkers/misc.py", "tests/checkers/unittest_misc.py"],
+        stronger_feedback=True,
+    )
+
+    assert "Prefer implementation patch targets first" in guidance
+    assert "already tried to stop on the same verification failure" in guidance
+    assert "targeted edit with patch_file" in guidance
 
 
 @pytest.mark.asyncio

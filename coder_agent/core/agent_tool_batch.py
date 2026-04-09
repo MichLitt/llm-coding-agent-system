@@ -115,7 +115,7 @@ def apply_retry_guidance(agent: Any, state: Any, batch: Any) -> tuple[str, str]:
                 f"{failure_excerpt}"
             )
     if correction_enabled:
-        state.awaiting_retry_verification = True
+        state.recovery_mode = "tool_error"
     state.last_error_type = batch.detected_error
     state.last_error_signature = error_signature
     return combined_observation, correction_feedback
@@ -139,7 +139,7 @@ async def handle_verification_auto_complete(
         or verification_hook is None
         or batch.saw_nonzero_exit
         or batch.saw_recoverable_tool_error
-        or not any(tool_use["name"] in {"write_file", "run_command"} for tool_use in turn.tool_uses)
+        or not any(tool_use["name"] in {"write_file", "patch_file", "run_command"} for tool_use in turn.tool_uses)
     ):
         return None
 

@@ -47,6 +47,7 @@ class Trajectory:
     task_id: str
     experiment_id: str
     config: dict[str, Any]
+    task_metadata: dict[str, Any] = field(default_factory=dict)
     steps: list[Step] = field(default_factory=list)
     final_status: str = "running"        # running / success / failed / timeout
     termination_reason: str | None = None
@@ -75,6 +76,7 @@ class TrajectoryStore:
         task_id: str,
         experiment_id: str,
         config: dict[str, Any],
+        task_metadata: dict[str, Any] | None = None,
         random_seed: int = 42,
     ) -> str:
         """Begin recording a new trajectory. Returns a unique traj_id."""
@@ -83,6 +85,7 @@ class TrajectoryStore:
             task_id=task_id,
             experiment_id=experiment_id,
             config=config,
+            task_metadata=dict(task_metadata or {}),
             random_seed=random_seed,
         )
         return traj_id

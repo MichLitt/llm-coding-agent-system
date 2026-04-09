@@ -1,4 +1,5 @@
 import importlib
+import json
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -253,3 +254,31 @@ def test_eval_compare_uses_per_config_labels_for_make_agent(monkeypatch):
     assert labels == ["batch_C3", "batch_C4"]
     assert all(kwargs["workspace"] == Path("/tmp/demo-workspace") for _, kwargs in captured)
     assert all(kwargs["experiment_config"] == {"memory_lookup_mode": "similarity"} for _, kwargs in captured)
+
+
+def test_analyze_writes_layered_report(tmp_path, monkeypatch):
+    monkeypatch.setattr(eval_module.cfg.eval, "trajectory_dir", tmp_path)
+    monkeypatch.setattr(eval_module.cfg.eval, "output_dir", tmp_path)
+
+    trajectory = {
+        "task_id": "demo_task",
+        "experiment_id": "demo_exp",
+        "steps": [{"action": None, "observation": "ModuleNotFoundError: No module named 'demo'"}],
+        "final_status": "failed",
+        "termination_reason": "retry_exhausted",
+        "total_tokens": 1,
+        "duration": 0.1,
+        "metadata": {},
+    }
+    (tmp_path / "demo_exp.jsonl").write_text(json.dumps(trajectory) + "\n", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["analyze", "demo_exp"])
+
+    assert result.exit_code == 0
+    assert "Wrote layered analysis report:" in result.output
+    report_path = tmp_path / "demo_exp_analysis_report.json"
+    assert report_path.exists()
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["experiment_id"] == "demo_exp"
+    assert report["summary"]["total_failed"] == 1

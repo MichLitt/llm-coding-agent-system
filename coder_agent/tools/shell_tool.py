@@ -4,6 +4,7 @@ import asyncio
 import locale
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -12,6 +13,7 @@ from pathlib import Path
 from coder_agent.config import cfg
 from coder_agent.core.workspace_env import workspace_command_env, workspace_python_executable
 from coder_agent.tools.base import Tool
+from coder_agent.tools.command_budget import is_ad_hoc_install_command
 
 BLOCKED_PATTERNS: list[str] = cfg.tools.blocked_commands
 
@@ -23,6 +25,14 @@ def _decode_output(data: bytes) -> str:
         except UnicodeDecodeError:
             continue
     return data.decode("utf-8", errors="replace")
+
+
+def _wrap_with_pipefail(command: str) -> str:
+    if sys.platform.startswith("win") or "|" not in command:
+        return command
+    # Preserve the original shell command while ensuring pipeline exit codes
+    # reflect upstream pytest/python failures instead of the final pipe stage.
+    return f"bash -o pipefail -lc {shlex.quote(command)}"
 
 
 async def _terminate_process_tree(proc: asyncio.subprocess.Process) -> None:
@@ -65,10 +75,43 @@ class RunCommandTool(Tool):
             },
         )
         self.workspace = Path(workspace or cfg.agent.workspace).resolve()
+        self.workspace.mkdir(parents=True, exist_ok=True)
+        self.max_ad_hoc_installs_per_task: int | None = None
+        self.ad_hoc_install_count: int = 0
 
-    async def execute(self, command: str, timeout: int = 30) -> str:
+    def configure_ad_hoc_install_budget(self, max_installs: int | None) -> None:
+        self.max_ad_hoc_installs_per_task = max_installs
+        self.ad_hoc_install_count = 0
+
+    def _budget_error(self) -> str:
+        return (
+            "Error: ad hoc install budget exceeded for this task. "
+            "Do not keep retrying package installation. Check project-local imports, "
+            "task-local virtualenv setup, and existing setup_commands first."
+        )
+
+    def try_reserve_ad_hoc_install(self, command: str) -> str | None:
+        if not is_ad_hoc_install_command(command):
+            return None
+        if self.max_ad_hoc_installs_per_task is not None and (
+            self.ad_hoc_install_count >= self.max_ad_hoc_installs_per_task
+        ):
+            return self._budget_error()
+        self.ad_hoc_install_count += 1
+        return None
+
+    async def execute(
+        self,
+        command: str,
+        timeout: int = 30,
+        _install_budget_reserved: bool = False,
+    ) -> str:
         if any(p in command for p in BLOCKED_PATTERNS):
             raise RuntimeError("command blocked for safety")
+        if not _install_budget_reserved:
+            budget_error = self.try_reserve_ad_hoc_install(command)
+            if budget_error:
+                return budget_error
 
         # Normalize python/pytest invocations to the workspace interpreter so that
         # "python foo.py", "python3 foo.py", and "cd /path && pytest" are bound
@@ -96,6 +139,7 @@ class RunCommandTool(Tool):
             _replace_python_token,
             command,
         )
+        command = _wrap_with_pipefail(command)
 
         proc = await asyncio.create_subprocess_shell(
             command,

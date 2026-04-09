@@ -181,11 +181,15 @@ class Agent:
         *,
         repeated: bool = False,
         counted_attempt: bool = False,
+        preferred_patch_targets: list[str] | None = None,
+        stronger_feedback: bool = False,
     ) -> str:
         return build_verification_guidance(
             summary,
             repeated=repeated,
             counted_attempt=counted_attempt,
+            preferred_patch_targets=preferred_patch_targets,
+            stronger_feedback=stronger_feedback,
         )
 
     def _record_memory_result(self, user_input: str, result: TurnResult) -> None:
@@ -199,6 +203,7 @@ class Agent:
         self,
         user_input: str,
         task_id: str = "",
+        task_metadata: dict[str, Any] | None = None,
         finalize_trajectory: bool = True,
         record_memory: bool = True,
         verification_hook: VerificationHook | None = None,
@@ -211,6 +216,7 @@ class Agent:
             self,
             user_input,
             task_id=task_id,
+            task_metadata=task_metadata,
             finalize_trajectory=finalize_trajectory,
             verification_hook=verification_hook,
             max_verification_attempts=max_verification_attempts,
@@ -227,6 +233,7 @@ class Agent:
         self,
         user_input: str,
         task_id: str = "",
+        task_metadata: dict[str, Any] | None = None,
         finalize_trajectory: bool = True,
         record_memory: bool = True,
         verification_hook: VerificationHook | None = None,
@@ -239,6 +246,7 @@ class Agent:
             return await self._loop(
                 user_input,
                 task_id=task_id,
+                task_metadata=task_metadata,
                 finalize_trajectory=finalize_trajectory,
                 record_memory=record_memory,
                 verification_hook=verification_hook,
@@ -255,6 +263,7 @@ class Agent:
         self,
         user_input: str,
         task_id: str = "",
+        task_metadata: dict[str, Any] | None = None,
         finalize_trajectory: bool = True,
         record_memory: bool = True,
         verification_hook: VerificationHook | None = None,
@@ -267,6 +276,7 @@ class Agent:
             self._run_with_cleanup(
                 user_input,
                 task_id=task_id,
+                task_metadata=task_metadata,
                 finalize_trajectory=finalize_trajectory,
                 record_memory=False,
                 verification_hook=verification_hook,

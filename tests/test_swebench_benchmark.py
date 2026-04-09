@@ -23,6 +23,32 @@ from coder_agent.eval.runner import EvalRunner, TaskSpec
 
 
 _FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "coder_agent" / "eval" / "benchmarks" / "swebench" / "fixtures"
+_SWEBENCH_ROOT = Path(__file__).resolve().parents[1] / "coder_agent" / "eval" / "benchmarks" / "swebench"
+_OFFICIAL_SOURCE_PATH = _SWEBENCH_ROOT / "official_tasks.source.json"
+_OFFICIAL_MANIFEST_PATH = _SWEBENCH_ROOT / "official_manifest.generated.json"
+_LOCAL_OVERRIDES_PATH = _SWEBENCH_ROOT / "local_overrides.json"
+_EXPECTED_SMOKE_IDS = [
+    "pylint-dev__pylint-5859",
+    "sympy__sympy-22005",
+    "pytest-dev__pytest-7220",
+]
+_EXPECTED_PROMOTED_IDS = {
+    "pylint-dev__pylint-5859",
+    "pylint-dev__pylint-7993",
+    "sympy__sympy-22005",
+    "sympy__sympy-21627",
+    "pytest-dev__pytest-7220",
+    "pytest-dev__pytest-7373",
+    "sphinx-doc__sphinx-8273",
+    "pallets__flask-4992",
+}
+_EXPECTED_PROMOTED_REPOS = {
+    "pylint-dev/pylint",
+    "sympy/sympy",
+    "pytest-dev/pytest",
+    "sphinx-doc/sphinx",
+    "pallets/flask",
+}
 
 
 class DummyAgent:
@@ -207,40 +233,99 @@ def test_load_swebench_tasks_by_subset():
     smoke_tasks = load_swebench_tasks(subset="smoke")
     promoted_tasks = load_swebench_tasks(subset="promoted")
 
-    assert [task.task_id for task in smoke_tasks] == ["pylint-dev__pylint-5859"]
-    assert {task.task_id for task in promoted_tasks} == {
-        "sympy__sympy-22005",
-        "pytest-dev__pytest-7220",
-        "sphinx-doc__sphinx-8273",
-    }
+    assert [task.task_id for task in smoke_tasks] == _EXPECTED_SMOKE_IDS
+    assert {task.task_id for task in promoted_tasks} == _EXPECTED_PROMOTED_IDS
     assert all(task.metadata["source_mode"] == "official_lite_generated_v1" for task in smoke_tasks + promoted_tasks)
     assert all(task.metadata["repo_url"].startswith("https://github.com/") for task in smoke_tasks + promoted_tasks)
     assert smoke_tasks[0].metadata["setup_commands"]
     assert smoke_tasks[0].metadata["python_version"] == "3.10"
     assert "-p no:benchmark" in smoke_tasks[0].metadata["test_command"]
     assert smoke_tasks[0].metadata["verification_files"] == ["tests/checkers/unittest_misc.py"]
+    assert smoke_tasks[0].metadata["authorized_test_edit_paths"] == ["tests/checkers/unittest_misc.py"]
+    assert smoke_tasks[0].metadata["setup_complexity"] == "medium"
+    assert smoke_tasks[0].metadata["expected_patch_target_count"] == 2
     assert smoke_tasks[0].metadata["test_patch"]
     assert smoke_tasks[0].metadata["official_manifest_sha256"]
     assert smoke_tasks[0].metadata["overrides_manifest_sha256"]
-    assert {task.metadata["repo"] for task in promoted_tasks} == {
-        "sympy/sympy",
-        "pytest-dev/pytest",
-        "sphinx-doc/sphinx",
-    }
+    assert {task.metadata["repo"] for task in promoted_tasks} == _EXPECTED_PROMOTED_REPOS
     versions = {task.task_id: task.metadata["python_version"] for task in promoted_tasks}
     assert versions == {
+        "pylint-dev__pylint-5859": "3.10",
+        "pylint-dev__pylint-7993": "3.10",
         "sympy__sympy-22005": "3.10",
+        "sympy__sympy-21627": "3.10",
         "pytest-dev__pytest-7220": "3.9",
+        "pytest-dev__pytest-7373": "3.9",
         "sphinx-doc__sphinx-8273": "3.10",
+        "pallets__flask-4992": "3.11",
     }
     assert all(task.metadata["setup_commands"] for task in promoted_tasks)
+    assert all(task.metadata["primary_failure_mode_category"] for task in promoted_tasks)
+    pylint_smoke_task = next(task for task in promoted_tasks if task.task_id == "pylint-dev__pylint-5859")
+    assert pylint_smoke_task.metadata["authorized_test_edit_paths"] == ["tests/checkers/unittest_misc.py"]
+    assert pylint_smoke_task.metadata["subset_membership"] == ["smoke", "promoted"]
+    assert any("setuptools wheel" in command for command in pylint_smoke_task.metadata["setup_commands"])
+    assert any("--no-build-isolation" in command for command in pylint_smoke_task.metadata["setup_commands"])
+    pylint_reporting_task = next(task for task in promoted_tasks if task.task_id == "pylint-dev__pylint-7993")
+    assert pylint_reporting_task.metadata["authorized_test_edit_paths"] == ["tests/reporters/unittest_reporting.py"]
+    assert pylint_reporting_task.metadata["test_command"] == "python -m pytest -q -p no:benchmark tests/reporters/unittest_reporting.py"
+    assert pylint_reporting_task.metadata["expected_patch_targets"] == [
+        "pylint/reporters/text.py",
+        "tests/reporters/unittest_reporting.py",
+    ]
+    sympy_task = next(task for task in promoted_tasks if task.task_id == "sympy__sympy-22005")
+    assert sympy_task.metadata["test_command"] == "python -m pytest -q sympy/solvers/tests/test_polysys.py"
+    assert sympy_task.metadata["authorized_test_edit_paths"] == []
+    sympy_complex_task = next(task for task in promoted_tasks if task.task_id == "sympy__sympy-21627")
+    assert sympy_complex_task.metadata["test_command"] == "python -m pytest -q sympy/functions/elementary/tests/test_complexes.py"
+    assert sympy_complex_task.metadata["authorized_test_edit_paths"] == ["sympy/functions/elementary/tests/test_complexes.py"]
     pytest_task = next(task for task in promoted_tasks if task.task_id == "pytest-dev__pytest-7220")
     assert any("xmlschema" in command and "hypothesis" in command for command in pytest_task.metadata["setup_commands"])
     assert pytest_task.metadata["test_command"] == "python -m pytest -q testing/test_nodes.py"
+    assert pytest_task.metadata["subset_membership"] == ["smoke", "promoted"]
+    assert pytest_task.metadata["authorized_test_edit_paths"] == []
+    pytest_mark_task = next(task for task in promoted_tasks if task.task_id == "pytest-dev__pytest-7373")
+    assert pytest_mark_task.metadata["test_command"] == "python -m pytest -q testing/test_mark.py"
+    assert pytest_mark_task.metadata["authorized_test_edit_paths"] == ["testing/test_mark.py"]
     sphinx_task = next(task for task in promoted_tasks if task.task_id == "sphinx-doc__sphinx-8273")
     assert any("setuptools<81" in command and "jinja2<3.1" in command for command in sphinx_task.metadata["setup_commands"])
+    assert any("roman" in command for command in sphinx_task.metadata["setup_commands"])
     assert sphinx_task.metadata["test_command"] == "python -m pytest -q tests/test_build_manpage.py"
+    assert sphinx_task.metadata["authorized_test_edit_paths"] == []
+    flask_task = next(task for task in promoted_tasks if task.task_id == "pallets__flask-4992")
+    assert flask_task.metadata["test_command"] == "python -m pytest -q tests/test_config.py"
+    assert flask_task.metadata["authorized_test_edit_paths"] == [
+        "tests/test_config.py",
+        "tests/static/config.toml",
+    ]
+    assert any("requirements/tests.txt" in command for command in flask_task.metadata["setup_commands"])
+    assert any("Werkzeug<2.3" in command for command in flask_task.metadata["setup_commands"])
     assert all(task.metadata["official_manifest_sha256"] for task in smoke_tasks + promoted_tasks)
+
+
+def test_checked_in_swebench_source_manifest_and_overrides_stay_aligned():
+    source = json.loads(_OFFICIAL_SOURCE_PATH.read_text(encoding="utf-8"))
+    manifest = json.loads(_OFFICIAL_MANIFEST_PATH.read_text(encoding="utf-8"))
+    overrides = json.loads(_LOCAL_OVERRIDES_PATH.read_text(encoding="utf-8"))
+
+    source_ids = {task["instance_id"] for task in source["tasks"]}
+    manifest_ids = {task["task_id"] for task in manifest["tasks"]}
+    promoted_override_ids = {
+        override["instance_id"]
+        for override in overrides["overrides"]
+        if "promoted" in (
+            override["subset"]
+            if isinstance(override["subset"], list)
+            else [override["subset"]]
+        )
+    }
+
+    assert source_ids == _EXPECTED_PROMOTED_IDS
+    assert manifest_ids == _EXPECTED_PROMOTED_IDS
+    assert promoted_override_ids == _EXPECTED_PROMOTED_IDS
+    assert promoted_override_ids <= source_ids
+    assert promoted_override_ids <= manifest_ids
+    assert {task["repo"] for task in manifest["tasks"]} == _EXPECTED_PROMOTED_REPOS
 
 
 def test_load_swebench_tasks_requires_instance_and_test_lists(tmp_path):
@@ -508,6 +593,67 @@ def test_run_swebench_check_applies_verification_overlay_without_polluting_patch
     assert "tests/test_calculator.py" not in patch_text
 
 
+def test_run_swebench_check_applies_overlay_when_agent_created_same_untracked_file(tmp_path):
+    repo_path, base_commit = _build_local_repo(tmp_path, "calc_bug")
+    overlay_file = repo_path / "tests" / "static" / "config.toml"
+    overlay_file.parent.mkdir(parents=True, exist_ok=True)
+    overlay_file.write_text('TEST_KEY = "official"\n', encoding="utf-8")
+    _git_commit_all(repo_path, "add overlay-only regression file")
+    test_patch = subprocess.run(
+        ["git", "diff", base_commit, "HEAD", "--", "tests/static/config.toml"],
+        cwd=str(repo_path),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    official_manifest_path, overrides_path = _local_swebench_files(
+        tmp_path,
+        official_tasks=[
+            {
+                "task_id": "calc_overlay_new_file",
+                "instance_id": "calc_overlay_new_file",
+                "repo": "local/calc_bug",
+                "repo_url": str(repo_path),
+                "base_commit": base_commit,
+                "problem_statement": "Keep verification overlay working when the agent created the same regression file.",
+                "environment_setup_commit": base_commit,
+                "fail_to_pass": [],
+                "pass_to_pass": [],
+                "test_patch": test_patch,
+            }
+        ],
+        overrides=[
+            {
+                "instance_id": "calc_overlay_new_file",
+                "subset": "smoke",
+                "test_command_override": "python -m pytest -q tests/test_calculator.py",
+                "expected_patch_targets": ["app/calculator.py", "tests/static/config.toml"],
+                "authorized_test_edit_paths": ["tests/static/config.toml"],
+            }
+        ],
+    )
+    task = load_swebench_tasks(
+        subset="smoke",
+        official_manifest_path=official_manifest_path,
+        overrides_path=overrides_path,
+    )[0]
+    workspace = prepare_swebench_workspace(task, tmp_path / task.task_id)
+    (workspace / "app" / "calculator.py").write_text(
+        "def add(a: int, b: int) -> int:\n    return a + b\n",
+        encoding="utf-8",
+    )
+    agent_version = 'TEST_KEY = "agent"\n'
+    created_path = workspace / "tests" / "static" / "config.toml"
+    created_path.parent.mkdir(parents=True, exist_ok=True)
+    created_path.write_text(agent_version, encoding="utf-8")
+
+    checks_passed, message = run_swebench_check(task, workspace)
+
+    assert checks_passed == 1
+    assert message is None
+    assert created_path.read_text(encoding="utf-8") == agent_version
+
+
 def test_export_official_manifest_generates_stable_checked_in_shape(tmp_path):
     source_path = _write_json(
         tmp_path / "official_tasks.source.json",
@@ -563,7 +709,7 @@ def test_load_swebench_tasks_rejects_override_of_official_fields(tmp_path):
         overrides=[
             {
                 "instance_id": "demo__repo-1",
-                "subset": "smoke",
+                "subset": ["smoke", "promoted"],
                 "base_commit": "override-not-allowed",
             }
         ],
@@ -609,11 +755,7 @@ def test_run_suite_uses_task_scoped_workspace_for_swebench(tmp_path):
     runner.run_suite(tasks, config_label="swe_demo", benchmark_name="swebench", preset="C3", verbose=False)
 
     expected_root = cfg.agent.workspace.resolve() / "swe_demo" / "20260407120000-aaaabbbb"
-    assert captured_workspaces == [
-        expected_root / "sympy__sympy-22005",
-        expected_root / "pytest-dev__pytest-7220",
-        expected_root / "sphinx-doc__sphinx-8273",
-    ]
+    assert captured_workspaces == [expected_root / task.task_id for task in tasks]
 
 
 def test_swebench_manifest_records_benchmark_metadata(tmp_path):

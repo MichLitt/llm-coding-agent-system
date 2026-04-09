@@ -1,11 +1,19 @@
 """Trajectory analysis public facade."""
 
+from datetime import UTC, datetime
+import json
 from pathlib import Path
 
 from coder_agent.config import cfg
 from coder_agent.eval.analysis_llm import LLMTaxonomyResult, failure_taxonomy_llm
 from coder_agent.eval.analysis_stats import TrajectoryStats, compute_statistics
-from coder_agent.eval.analysis_taxonomy import TaxonomyResult, failure_taxonomy, is_context_lost
+from coder_agent.eval.analysis_taxonomy import (
+    LAYERED_FAILURE_CATEGORIES,
+    TaxonomyResult,
+    classify_layered_failure,
+    failure_taxonomy,
+    is_context_lost,
+)
 from coder_agent.memory.trajectory import TrajectoryStore
 
 
@@ -39,6 +47,43 @@ class TrajectoryAnalyzer:
 
     def failure_taxonomy_llm(self, experiment_id: str) -> list[LLMTaxonomyResult]:
         return failure_taxonomy_llm(self._load(experiment_id))
+
+    def layered_failure_report(self, experiment_id: str) -> dict:
+        trajs = self._load(experiment_id)
+        failed = [traj for traj in trajs if traj.get("final_status") != "success"]
+        counts = {category: 0 for category in LAYERED_FAILURE_CATEGORIES}
+        per_task: list[dict] = []
+
+        for traj in failed:
+            primary, secondary, notes = classify_layered_failure(traj)
+            counts[primary] += 1
+            per_task.append(
+                {
+                    "task_id": str(traj.get("task_id", "")),
+                    "termination_reason": str(traj.get("termination_reason", "")),
+                    "primary_category": primary,
+                    "secondary_signals": secondary,
+                    "notes": notes,
+                }
+            )
+
+        return {
+            "experiment_id": experiment_id,
+            "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "summary": {
+                "total_failed": len(failed),
+                "layered_failure_counts": counts,
+            },
+            "per_task": per_task,
+        }
+
+    def write_analysis_report(self, experiment_id: str, output_dir: Path | None = None) -> Path:
+        report = self.layered_failure_report(experiment_id)
+        target_dir = output_dir or cfg.eval.output_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        output_path = target_dir / f"{experiment_id}_analysis_report.json"
+        output_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        return output_path
 
     def print_llm_taxonomy(self, results: list[LLMTaxonomyResult]) -> None:
         if not results:
@@ -112,6 +157,15 @@ class TrajectoryAnalyzer:
                 print(f"  {item.category:<20} {item.count:>3} ({item.fraction:.1%}) {bar}")
                 if item.example_task_ids:
                     print(f"    examples: {', '.join(item.example_task_ids)}")
+
+    def print_layered_report(self, report: dict[str, object]) -> None:
+        summary = dict(report.get("summary", {}) or {})
+        counts = dict(summary.get("layered_failure_counts", {}) or {})
+        print()
+        print("Layered Failure Analysis:")
+        print(f"  Total failed: {summary.get('total_failed', 0)}")
+        for category in LAYERED_FAILURE_CATEGORIES:
+            print(f"  {category:<28} {counts.get(category, 0):>3}")
 
     def compare_experiments(self, experiment_ids: list[str]) -> None:
         print(f"\n{'=' * 70}")

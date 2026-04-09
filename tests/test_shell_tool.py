@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from coder_agent.tools.execute import execute_tools
 from coder_agent.tools import shell_tool
 from coder_agent.tools.shell_tool import RunCommandTool
 
@@ -57,6 +58,19 @@ async def test_run_command_returns_nonzero_exit_code():
     )
 
     assert "Exit code: 42" in result
+
+
+@pytest.mark.asyncio
+async def test_run_command_pipeline_uses_pipefail_for_upstream_failures():
+    tool = RunCommandTool()
+
+    result = await tool.execute(
+        command="python -c 'import sys; print(\"ok\"); sys.exit(7)' | tail -n 1",
+        timeout=5,
+    )
+
+    assert "Exit code: 7" in result
+    assert "ok" in result
 
 
 @pytest.mark.asyncio
@@ -241,6 +255,25 @@ async def test_run_command_prefers_workspace_swebench_venv(monkeypatch, tmp_path
 
 
 @pytest.mark.asyncio
+async def test_run_command_wraps_pipelines_with_pipefail(monkeypatch, tmp_path):
+    import asyncio
+    import unittest.mock as mock
+
+    captured = {}
+    original_create = asyncio.create_subprocess_shell
+
+    async def fake_create(cmd, **kw):
+        captured["cmd"] = cmd
+        return await original_create(cmd, **kw)
+
+    with mock.patch("asyncio.create_subprocess_shell", side_effect=fake_create):
+        tool = RunCommandTool(tmp_path)
+        await tool.execute(command="python --version | tail -n 1", timeout=5)
+
+    assert captured["cmd"].startswith("bash -o pipefail -lc ")
+
+
+@pytest.mark.asyncio
 async def test_run_command_normalizes_python3_to_workspace_swebench_venv(tmp_path):
     import asyncio
     import unittest.mock as mock
@@ -265,3 +298,61 @@ async def test_run_command_normalizes_python3_to_workspace_swebench_venv(tmp_pat
     assert captured["cmd"].startswith(f'"{venv_bin / "python"}" --version')
     assert "PYTHONHOME" not in captured["env"]
     assert "__PYVENV_LAUNCHER__" not in captured["env"]
+
+
+class _FakeProc:
+    def __init__(self, *, stdout: bytes = b"", stderr: bytes = b"", returncode: int = 0):
+        self._stdout = stdout
+        self._stderr = stderr
+        self.returncode = returncode
+        self.pid = 123
+
+    async def communicate(self):
+        return self._stdout, self._stderr
+
+
+@pytest.mark.asyncio
+async def test_run_command_budget_blocks_second_direct_install(monkeypatch, tmp_path):
+    calls: list[str] = []
+
+    async def fake_create(cmd, **kwargs):
+        calls.append(cmd)
+        return _FakeProc(stdout=b"installed", stderr=b"", returncode=0)
+
+    monkeypatch.setattr("asyncio.create_subprocess_shell", fake_create)
+    tool = RunCommandTool(tmp_path)
+    tool.configure_ad_hoc_install_budget(1)
+
+    first = await tool.execute(command="pip install demo-one", timeout=5)
+    second = await tool.execute(command="pip install demo-two", timeout=5)
+
+    assert "Exit code: 0" in first
+    assert second.startswith("Error: ad hoc install budget exceeded")
+    assert calls == ["pip install demo-one"]
+
+
+@pytest.mark.asyncio
+async def test_execute_tools_enforces_install_budget_by_original_batch_order(monkeypatch, tmp_path):
+    calls: list[str] = []
+
+    async def fake_create(cmd, **kwargs):
+        calls.append(cmd)
+        return _FakeProc(stdout=b"ok", stderr=b"", returncode=0)
+
+    monkeypatch.setattr("asyncio.create_subprocess_shell", fake_create)
+    tool = RunCommandTool(tmp_path)
+    tool.configure_ad_hoc_install_budget(1)
+
+    results = await execute_tools(
+        [
+            {"id": "call_1", "name": "run_command", "input": {"command": "pip install first"}},
+            {"id": "call_2", "name": "run_command", "input": {"command": "pip install second"}},
+            {"id": "call_3", "name": "run_command", "input": {"command": "python -c 'print(123)'"}},
+        ],
+        {"run_command": tool},
+    )
+
+    assert "Exit code: 0" in results[0]["content"]
+    assert results[1]["content"].startswith("Error: ad hoc install budget exceeded")
+    assert "Exit code: 0" in results[2]["content"]
+    assert calls == ["pip install first", f'"{sys.executable}" -c \'print(123)\'']

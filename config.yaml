@@ -39,7 +39,7 @@ agent:
   max_retries: 3
   planning_mode: react
   enable_memory: false     # `C4` enables project memory for multi-step tasks
-  enable_checklist: false  # `C5` remains experimental/non-promoted in 0.4.0
+  enable_checklist: false  # `C5` remains experimental/non-promoted in the 0.6.x -> 0.7.0 cycle
   enable_approach_memory: true
   memory_lookup_mode: recency
   doom_loop_threshold: 2
