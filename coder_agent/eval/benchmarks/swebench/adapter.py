@@ -96,11 +96,93 @@ def write_patch_artifact(workspace: Path, patch_text: str) -> Path:
     return patch_path
 
 
+def _patch_paths(test_patch: str) -> list[str]:
+    paths: list[str] = []
+    for line in test_patch.splitlines():
+        if not line.startswith("+++ b/"):
+            continue
+        path = line[len("+++ b/") :].strip()
+        if not path or path == "/dev/null" or path in paths:
+            continue
+        paths.append(path)
+    return paths
+
+
+def _git_status_porcelain(workspace: Path, path: str) -> str:
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "--", path],
+        cwd=str(workspace),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return result.stdout.strip()
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path, ignore_errors=True)
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+
+
+def _prepare_overlay_conflicts(
+    workspace: Path,
+    *,
+    patch_paths: list[str],
+    replaceable_paths: set[str],
+) -> tuple[Path, list[tuple[str, Path | None]]]:
+    backup_root = Path(tempfile.mkdtemp(prefix="verification-overlay-", dir=str(workspace.parent)))
+    restore_entries: list[tuple[str, Path | None]] = []
+
+    for rel_path in patch_paths:
+        if rel_path not in replaceable_paths:
+            continue
+        status = _git_status_porcelain(workspace, rel_path)
+        if not status:
+            continue
+
+        target_path = workspace / rel_path
+        backup_path: Path | None = None
+        if target_path.exists():
+            backup_path = backup_root / rel_path
+            backup_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(target_path, backup_path)
+        restore_entries.append((rel_path, backup_path))
+
+        if status.startswith("??"):
+            _remove_path(target_path)
+        else:
+            _run_git(["checkout", "--", rel_path], workspace)
+
+    return backup_root, restore_entries
+
+
+def _restore_overlay_conflicts(
+    workspace: Path,
+    *,
+    backup_root: Path,
+    restore_entries: list[tuple[str, Path | None]],
+) -> None:
+    for rel_path, backup_path in restore_entries:
+        target_path = workspace / rel_path
+        _remove_path(target_path)
+        if backup_path is None:
+            continue
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(backup_path, target_path)
+    shutil.rmtree(backup_root, ignore_errors=True)
+
+
 @contextmanager
 def verification_overlay(
     workspace: Path,
     *,
     test_patch: str | None = None,
+    replaceable_paths: set[str] | None = None,
 ):
     patch_text = str(test_patch or "")
     if not patch_text.strip():
@@ -108,7 +190,17 @@ def verification_overlay(
         return
 
     patch_path: str | None = None
+    backup_root: Path | None = None
+    restore_entries: list[tuple[str, Path | None]] = []
     try:
+        patch_paths = _patch_paths(patch_text)
+        replaceable = {str(path).strip() for path in (replaceable_paths or set()) if str(path).strip()}
+        if patch_paths and replaceable:
+            backup_root, restore_entries = _prepare_overlay_conflicts(
+                workspace,
+                patch_paths=patch_paths,
+                replaceable_paths=replaceable,
+            )
         with tempfile.NamedTemporaryFile(
             "w",
             encoding="utf-8",
@@ -139,6 +231,12 @@ def verification_overlay(
                 timeout=60,
             )
             os.unlink(patch_path)
+        if backup_root is not None:
+            _restore_overlay_conflicts(
+                workspace,
+                backup_root=backup_root,
+                restore_entries=restore_entries,
+            )
 
 
 def _clear_python_caches(workspace: Path) -> None:

@@ -27,6 +27,10 @@ def analyze_command(experiment_id: str, compare: str | None, llm_taxonomy: bool)
     stats = analyzer.compute_statistics(experiment_id)
     taxonomy = analyzer.failure_taxonomy(experiment_id)
     analyzer.print_report(stats, taxonomy)
+    layered_report = analyzer.layered_failure_report(experiment_id)
+    analyzer.print_layered_report(layered_report)
+    report_path = analyzer.write_analysis_report(experiment_id)
+    click.echo(f"\nWrote layered analysis report: {report_path}")
 
     if llm_taxonomy:
         click.echo("\nRunning LLM-as-Critic classification (this may take a moment)...")

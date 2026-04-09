@@ -14,7 +14,7 @@ _ERROR_GUIDANCE = {
 }
 
 
-def _first_test_target(text: str) -> str | None:
+def extract_first_test_target(text: str) -> str | None:
     match = re.search(r"([A-Za-z0-9_./-]+\.py::[^\s,;]+)", text)
     if match:
         return match.group(1)
@@ -242,9 +242,11 @@ def build_verification_guidance(
     *,
     repeated: bool = False,
     counted_attempt: bool = False,
+    preferred_patch_targets: list[str] | None = None,
+    stronger_feedback: bool = False,
 ) -> str:
     summary = summary.strip() or "Verification failed."
-    target = _first_test_target(summary)
+    target = extract_first_test_target(summary)
     test_file = target.split("::", 1)[0] if target and "::" in target else None
     excerpt = extract_failure_excerpt(summary, max_lines=5)
 
@@ -261,13 +263,19 @@ def build_verification_guidance(
     else:
         lines.append("Read the first failing test and the relevant implementation before editing.")
 
+    preferred_targets = [str(path).strip() for path in (preferred_patch_targets or []) if str(path).strip()]
+    preferred_impl_targets = [path for path in preferred_targets if "/test" not in path and not Path(path).name.startswith("test_")]
+    if preferred_impl_targets:
+        lines.append("Prefer implementation patch targets first: " + ", ".join(preferred_impl_targets[:2]) + ".")
+
     if excerpt:
         lines.append("First failure excerpt:")
         lines.append(excerpt)
 
     lines.append(
-        "Next action: use tools to inspect files, make one targeted edit with write_file, then rerun the relevant command with run_command."
+        "Next action: use tools to inspect files, make one targeted edit with patch_file, then rerun the relevant command with run_command. Use write_file only for new files or full rewrites."
     )
+    lines.append("Do not use | tail, | head, or | grep to decide whether verification passed; run the command directly and inspect output separately.")
     lines.append("Do not stop with a summary or explanation before you have written code or run a command.")
 
     if not counted_attempt:
@@ -277,5 +285,9 @@ def build_verification_guidance(
     if repeated:
         lines.append(
             "This same verification failure repeated. Do not summarize again; switch to reading the failing test and making a concrete change."
+        )
+    if stronger_feedback:
+        lines.append(
+            "You already tried to stop on the same verification failure more than once. Read the failure block above, patch the implementation, then rerun verification before another completion."
         )
     return "\n\n".join(lines)

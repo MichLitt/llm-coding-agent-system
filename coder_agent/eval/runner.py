@@ -1,6 +1,7 @@
 """Eval runner public facade."""
 
 import hashlib
+import inspect
 import json
 import secrets
 import time
@@ -253,16 +254,18 @@ class EvalRunner:
 
         start = time.time()
         try:
-            turn_result = agent.run(
-                task.description,
-                task_id=task.task_id,
-                finalize_trajectory=False,
-                verification_hook=verification_hook,
-                max_verification_attempts=task.verification_contract.get("max_attempts", 2),
-                enforce_stop_verification=(verification_hook is not None),
-                auto_complete_on_verification=verification_hook is not None,
-                max_steps=task.max_steps,
-            )
+            run_kwargs = {
+                "task_id": task.task_id,
+                "finalize_trajectory": False,
+                "verification_hook": verification_hook,
+                "max_verification_attempts": task.verification_contract.get("max_attempts", 2),
+                "enforce_stop_verification": (verification_hook is not None),
+                "auto_complete_on_verification": verification_hook is not None,
+                "max_steps": task.max_steps,
+            }
+            if "task_metadata" in inspect.signature(agent.run).parameters:
+                run_kwargs["task_metadata"] = task.metadata
+            turn_result = agent.run(task.description, **run_kwargs)
         except Exception as exc:
             tb_summary = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).strip()
             return EvalResult(

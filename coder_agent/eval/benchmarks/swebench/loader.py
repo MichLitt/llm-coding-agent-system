@@ -23,6 +23,10 @@ _ALLOWED_OVERRIDE_FIELDS = {
     "setup_commands",
     "test_command_override",
     "expected_patch_targets",
+    "expected_patch_target_count",
+    "authorized_test_edit_paths",
+    "setup_complexity",
+    "primary_failure_mode_category",
     "max_steps",
 }
 _PROTECTED_OFFICIAL_FIELDS = {
@@ -84,12 +88,21 @@ def _build_agent_prompt(task: dict[str, Any]) -> str:
             + ", ".join(verification_files)
             + ". Update those files locally if the fix requires matching test changes.\n"
         )
+    authorized_test_paths = [str(item).strip() for item in task.get("authorized_test_edit_paths", []) if str(item).strip()]
+    authorized_test_hint = ""
+    if authorized_test_paths:
+        authorized_test_hint = (
+            "Authorized regression test edit paths: "
+            + ", ".join(authorized_test_paths)
+            + ". Do not edit unrelated tests during verification recovery.\n"
+        )
 
     return (
         "You are fixing a bug in a repository already checked out in the workspace.\n\n"
         f"Problem statement:\n{task['problem_statement'].strip()}\n\n"
         f"{target_hint}"
         f"{regression_hint}"
+        f"{authorized_test_hint}"
         f"Validation command:\n`{task['test_command']}`\n\n"
         "Required workflow:\n"
         "1. Inspect the repository files in the workspace.\n"
@@ -97,6 +110,19 @@ def _build_agent_prompt(task: dict[str, Any]) -> str:
         "3. Run the validation command and the listed target tests until they pass.\n"
         "4. When verification succeeds, stop and provide a short summary.\n"
     )
+
+
+def _normalize_override_subsets(raw_subset: Any) -> list[str]:
+    if isinstance(raw_subset, list):
+        subsets = [str(item).strip() for item in raw_subset if str(item).strip()]
+    else:
+        subsets = [str(raw_subset).strip()]
+    if not subsets:
+        raise ValueError("swebench override subset must not be empty")
+    invalid = [subset for subset in subsets if subset not in _VALID_SUBSETS]
+    if invalid:
+        raise ValueError(f"Unsupported swebench override subset: {', '.join(invalid)}")
+    return subsets
 
 
 def _load_overrides(overrides_path: Path) -> tuple[dict[str, dict[str, Any]], str]:
@@ -125,8 +151,7 @@ def _load_overrides(overrides_path: Path) -> tuple[dict[str, dict[str, Any]], st
             raise ValueError(
                 f"swebench override {instance_id} contains unsupported field(s): {', '.join(invalid)}"
             )
-        if str(item["subset"]).strip() not in _VALID_SUBSETS:
-            raise ValueError(f"Unsupported swebench override subset: {item['subset']}")
+        item["subset"] = _normalize_override_subsets(item["subset"])
         if instance_id in overrides_by_id:
             raise ValueError(f"Duplicate swebench override instance_id: {instance_id}")
         overrides_by_id[instance_id] = item
@@ -192,29 +217,44 @@ def load_swebench_tasks(
         seen_task_ids.add(task_id)
 
         override = overrides_by_id.get(str(item["instance_id"]).strip())
-        if override is None or override["subset"] != subset:
+        if override is None or subset not in override["subset"]:
             continue
 
         test_patch = str(item.get("test_patch", ""))
         verification_files = _patch_paths(test_patch)
         test_command = str(override.get("test_command_override") or _DEFAULT_TEST_COMMAND)
+        expected_patch_targets = [str(path).strip() for path in override.get("expected_patch_targets", []) if str(path).strip()]
+        authorized_test_edit_paths = [
+            str(path).strip()
+            for path in override.get("authorized_test_edit_paths", [])
+            if str(path).strip()
+        ]
+        if not authorized_test_edit_paths and verification_files:
+            authorized_test_edit_paths = list(verification_files)
         metadata = {
             "benchmark": "swebench",
             "instance_id": item["instance_id"],
             "repo": item["repo"],
-            "subset": override["subset"],
+            "subset": subset,
+            "subset_membership": list(override["subset"]),
             "repo_url": item["repo_url"],
             "mirror_path": override.get("mirror_path"),
             "base_commit": item["base_commit"],
             "problem_statement": item["problem_statement"],
             "python_version": override.get("python_version"),
             "setup_commands": list(override.get("setup_commands", [])),
+            "setup_complexity": str(override.get("setup_complexity") or ("low" if not override.get("setup_commands") else "medium")),
             "test_command": test_command,
             "fail_to_pass": list(item["fail_to_pass"]),
             "pass_to_pass": list(item["pass_to_pass"]),
             "test_patch": test_patch,
             "verification_files": verification_files,
-            "expected_patch_targets": list(override.get("expected_patch_targets", [])),
+            "expected_patch_targets": expected_patch_targets,
+            "expected_patch_target_count": int(override.get("expected_patch_target_count") or len(expected_patch_targets)),
+            "authorized_test_edit_paths": authorized_test_edit_paths,
+            "primary_failure_mode_category": str(
+                override.get("primary_failure_mode_category") or "genuine_implementation_miss"
+            ),
             "dataset_name": raw["dataset_name"],
             "dataset_version": raw["dataset_version"],
             "manifest_version": raw["manifest_version"],

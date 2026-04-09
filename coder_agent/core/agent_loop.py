@@ -53,11 +53,13 @@ class LoopState:
     verification_attempts: int = 0
     verification_failures: int = 0
     verification_recovery_action_seen: bool = False
+    verification_recovery_impl_paths: set[str] = field(default_factory=set)
     no_tool_completion_verification_failures: int = 0
     last_verification_failure_signature: str | None = None
+    last_verification_failure_target: str | None = None
     consecutive_verification_failures: int = 0
     exception_stage: str = "init"
-    awaiting_retry_verification: bool = False
+    recovery_mode: str = "none"
     retry_edit_target: str | None = None
     consecutive_identical_failures: int = 0
     last_failing_call_sig: str | None = None
@@ -69,6 +71,8 @@ class LoopState:
     cross_task_memory_injected: bool = False
     memory_injections: int = 0
     db_records_written: int = 0
+    ad_hoc_install_count: int = 0
+    task_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -260,6 +264,20 @@ async def _update_failure_tracking(agent: Any, state: LoopState, turn: ModelTurn
         state.doom_loop_warnings_injected += 1
 
 
+def _configure_task_tool_state(agent: Any, state: LoopState) -> None:
+    max_installs = int(_runtime_setting(agent, "max_ad_hoc_installs_per_task", 1))
+    run_command_tool = agent.tool_dict.get("run_command")
+    if run_command_tool is not None and hasattr(run_command_tool, "configure_ad_hoc_install_budget"):
+        run_command_tool.configure_ad_hoc_install_budget(max_installs)
+    state.ad_hoc_install_count = 0
+
+
+def _sync_tool_state(agent: Any, state: LoopState) -> None:
+    run_command_tool = agent.tool_dict.get("run_command")
+    if run_command_tool is not None and hasattr(run_command_tool, "ad_hoc_install_count"):
+        state.ad_hoc_install_count = int(getattr(run_command_tool, "ad_hoc_install_count", 0))
+
+
 def _remember_failed_approach(state: LoopState, turn: ModelTurn, batch: ToolBatchSummary, observation: str) -> None:
     if state.retry_count < 1:
         return
@@ -278,6 +296,7 @@ async def run_agent_loop(
     user_input: str,
     *,
     task_id: str = "",
+    task_metadata: dict[str, Any] | None = None,
     finalize_trajectory: bool = True,
     verification_hook: VerificationHook | None = None,
     max_verification_attempts: int = 2,
@@ -287,9 +306,11 @@ async def run_agent_loop(
     execute_tools_fn: Callable[[list[dict[str, Any]], dict[str, Any]], Awaitable[list[dict[str, Any]]]],
 ) -> TurnResult:
     state = LoopState()
+    state.task_metadata = dict(task_metadata or {})
     token_printer = _TokenPrinter(agent)
     effective_max_steps = max_steps if max_steps is not None else cfg.agent.max_steps
 
+    _configure_task_tool_state(agent, state)
     await seed_run_context(agent, state, user_input)
     start_trajectory(agent, state, user_input=user_input, task_id=task_id)
 
@@ -342,7 +363,7 @@ async def run_agent_loop(
                     return _attach_activation_counters(completion_result, state)
                 continue
 
-            retry_policy_feedback = check_retry_edit_policy(state, turn.tool_uses)
+            retry_policy_feedback = check_retry_edit_policy(agent, state, turn.tool_uses)
             if retry_policy_feedback:
                 await handle_retry_edit_policy_violation(
                     agent,
@@ -362,6 +383,7 @@ async def run_agent_loop(
 
             state.exception_stage = "tools.execute"
             tool_results = await execute_tools_fn(turn.tool_uses, agent.tool_dict)
+            _sync_tool_state(agent, state)
             for tool_result in tool_results:
                 status = "ERR" if tool_result.get("is_error") else "ok"
                 preview = str(tool_result.get("content", "")).split("\n")[0][:80]
@@ -372,11 +394,12 @@ async def run_agent_loop(
                 parse_errors=turn.parse_errors,
                 summary_cls=ToolBatchSummary,
             )
-            if any(tool_use["name"] in {"write_file", "run_command"} for tool_use in turn.tool_uses):
+            if any(tool_use["name"] in {"write_file", "patch_file", "run_command"} for tool_use in turn.tool_uses):
                 state.verification_recovery_action_seen = True
             if any(tool_use["name"] == "run_command" for tool_use in turn.tool_uses):
-                state.awaiting_retry_verification = False
+                state.recovery_mode = "none"
                 state.retry_edit_target = None
+                state.verification_recovery_impl_paths = set()
 
             if batch.hard_tool_exception is not None:
                 record_trajectory_step(
@@ -405,6 +428,21 @@ async def run_agent_loop(
                 )
 
             combined_observation, correction_feedback = apply_retry_guidance(agent, state, batch)
+            if (
+                state.recovery_mode == "verification"
+                and not batch.saw_nonzero_exit
+                and not batch.saw_recoverable_tool_error
+            ):
+                edited_impl_paths = {
+                    str(tool_use["input"].get("path", "")).strip()
+                    for tool_use in turn.tool_uses
+                    if tool_use["name"] in {"write_file", "patch_file"}
+                    and str(tool_use["input"].get("path", "")).strip()
+                    and "/test" not in str(tool_use["input"].get("path", "")).replace("\\", "/")
+                    and not str(tool_use["input"].get("path", "")).replace("\\", "/").startswith("tests/")
+                    and not str(tool_use["input"].get("path", "")).split("/")[-1].startswith("test_")
+                }
+                state.verification_recovery_impl_paths.update(edited_impl_paths)
             await _update_failure_tracking(agent, state, turn, batch)
             if batch.saw_nonzero_exit or batch.saw_recoverable_tool_error:
                 _remember_failed_approach(state, turn, batch, combined_observation)

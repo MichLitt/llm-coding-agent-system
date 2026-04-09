@@ -12,28 +12,41 @@ License: [MIT](./LICENSE).
 - Custom benchmark runner for multi-step coding tasks
 - Official SWE-bench Lite subset runner for repository repair smoke and compare lanes
 - HumanEval runner for function-level benchmark evaluation
-- Trajectory analysis, failure taxonomy, and experiment comparison
+- Trajectory analysis, layered failure reports, and experiment comparison
 
 ## Current Status
 
-The last completed baseline artifact set is `report/BASELINE_0_6_0.md`. The `0.6.0` cycle closed the runtime-contract rebaseline introduced by `v0.6.0a`, `v0.6.0b`, and `v0.6.0c`: per-run eval workspace isolation, explicit runtime workspace plumbing across the agent/tool stack, stricter resume/manifest contracts, a fixed official SWE-bench Lite subset for repository-level smoke and compare runs, and a generated-manifest alignment layer that derives the SWE-bench task contract from checked-in official metadata plus local runtime overrides. A post-baseline `v0.6.0d` change then hardened SWE-bench promoted task-local provisioning and host Python env isolation, and the branch now has fresh post-hardening SWE reruns to cite.
+Current code version: `0.7.1`
+
+Current accepted baseline cycle: `0.7.1` via `report/BASELINE_0_7_1.md`
+
+The accepted `0.7.1` cycle closes the `0.7.0` workstream on top of the earlier `0.6.0` runtime-contract baseline. `0.7.0` introduced patch-style editing (`patch_file`), verification-specific recovery guardrails, task-scoped ad hoc install budgets, and layered analysis reports written to `results/<experiment_id>_analysis_report.json`.
+
+The accepted `0.7.1` closure then tightened benchmark-facing runtime semantics and SWE attribution quality: piped shell commands now surface upstream failures via `pipefail`, SWE verification overlay handling avoids agent-created regression-file conflicts, `sphinx-doc__sphinx-8273` provisioning is tighter, and layered taxonomy is stricter about `shell_exit_masking`. The accepted value of `0.7.1` is cleaner failure composition on the fixed SWE promoted lane, not a higher pass rate.
 
 Key points:
 
 - The supported runtime path is an OpenAI-compatible backend configured with `LLM_API_KEY` and optional `LLM_BASE_URL`.
 - `model.provider` remains in config for compatibility and is informational only at runtime.
 - The active day-to-day presets are `default`, `C3`, `C4`, and `C6`.
-- The last completed baseline doc is `BASELINE_0_6_0.md`; `REBASELINE_PLAYBOOK_0_6_0.md` records the accepted `0.6.0` closure, including the post-`v0.6.0d` SWE reruns.
-- The accepted `0.6.0` Custom targeted compare artifacts are `custom_v060_cmp_C3`, `custom_v060_cmp_C4`, and `custom_v060_cmp_C6`.
-- The accepted `0.6.0` SWE-bench validation artifacts are `swe_smoke_c3_v060i`, `swe_promoted_cmp_v060i_C3`, and `swe_promoted_cmp_v060i_C6`.
+- The current accepted closure docs are `BASELINE_0_7_1.md`, `REBASELINE_PLAYBOOK_0_7_1.md`, and `IMPROVEMENT_REPORT_v0.7.1.md`.
+- The accepted `0.7.1` SWE promoted artifacts are `swe_promoted_cmp_v071r1_C3`, `swe_promoted_cmp_v071r1_C6`, and supporting `swe_promoted_support_v071r1_C4`.
+- The accepted `0.6.0` Custom targeted compare artifacts remain `custom_v060_cmp_C3`, `custom_v060_cmp_C4`, and `custom_v060_cmp_C6`.
 - `C5` remains available for checklist experiments, but it is explicitly non-promoted.
 - Eval runs with a `config_label` now allocate a unique run workspace under `<workspace>/<config_label>/<run_id>/`.
 - `--resume` now means "skip completed tasks and continue remaining tasks"; it does not restore prior workspace state, conversation history, or loop state.
 - `--benchmark swebench` now runs a version-pinned official SWE-bench Lite subset with per-task workspaces under `<run_workspace>/<task_id>/`.
+- The checked-in SWE smoke subset now covers `3` fixed tasks; the promoted compare subset now covers `8` fixed tasks across `5` upstream repos and remains hash-audited.
 - The SWE-bench task source of truth is now `official_manifest.generated.json` plus `local_overrides.json`, not a hand-written single task manifest.
+- Promoted SWE-bench tasks now use explicit per-task test-edit authorization where regression-file edits are intentionally allowed, instead of relying on broad implicit fallback.
+- `analyze` now writes a machine-readable layered failure report alongside the console summary.
+- Formal SWE promoted compare lanes remain `C3` and `C6`; `C4` is retained as a supporting lane and is not promoted in `0.7.1`.
 
 Recommended reading:
 
+- [BASELINE_0_7_1.md](./report/BASELINE_0_7_1.md)
+- [REBASELINE_PLAYBOOK_0_7_1.md](./report/REBASELINE_PLAYBOOK_0_7_1.md)
+- [IMPROVEMENT_REPORT_v0.7.1.md](./report/IMPROVEMENT_REPORT_v0.7.1.md)
 - [BASELINE_0_6_0.md](./report/BASELINE_0_6_0.md)
 - [IMPROVEMENT_REPORT_v0.6.0d.md](./report/IMPROVEMENT_REPORT_v0.6.0d.md)
 - [BASELINE_0_5_1.md](./report/BASELINE_0_5_1.md)
@@ -49,13 +62,13 @@ Recommended reading:
 
 ### Preset Guidance
 
-| Preset | Primary use | 0.6.0 cycle status |
+| Preset | Primary use | 0.7.1 cycle status |
 |--------|-------------|--------------|
 | `default` | Config-driven interactive use | Active |
-| `C3` | ReAct + correction baseline | Best targeted Custom compare lane |
-| `C4` | Multi-step tasks with memory | Supporting targeted compare lane |
+| `C3` | ReAct + correction baseline | Formal SWE promoted compare lane |
+| `C4` | Multi-step tasks with memory | Supporting SWE lane only; not promoted |
 | `C5` | Checklist/decomposer experiments | Experimental |
-| `C6` | Verification-gated ReAct baseline | Supporting targeted compare lane |
+| `C6` | Verification-gated ReAct baseline | Formal SWE promoted compare lane |
 
 ## Quick Start
 
@@ -150,6 +163,8 @@ uv run python scripts/export_swebench_manifest.py
 uv run python -m coder_agent analyze demo
 ```
 
+This writes `results/demo_analysis_report.json` in addition to the console summary.
+
 ## LLM Profile Configuration
 
 As of v0.5.2, provider configuration is managed through named profiles in `config.yaml`. This replaces the previous single-backend `model:` block.
@@ -209,13 +224,15 @@ Then add the corresponding vars to `.env` and use `--llm-profile my_provider`.
 
 ## Evaluation and Re-Baselining
 
-The branch currently has two relevant baseline documents:
+The branch currently has two relevant accepted baseline documents:
 
-- [BASELINE_0_6_0.md](./report/BASELINE_0_6_0.md): current accepted metrics on the per-run-workspace runtime
-- [BASELINE_0_5_1.md](./report/BASELINE_0_5_1.md): archived accepted metrics on the pre-`0.6.0a` runtime
-- [REBASELINE_PLAYBOOK_0_6_0.md](./report/REBASELINE_PLAYBOOK_0_6_0.md): completed rebaseline contract and reproduction commands for the `0.6.0` cycle
+- [BASELINE_0_7_1.md](./report/BASELINE_0_7_1.md): current accepted `0.7.1` closure baseline for SWE promoted noise-reduction and attribution cleanup
+- [BASELINE_0_6_0.md](./report/BASELINE_0_6_0.md): previous accepted runtime-contract baseline and the last full Custom/SWE closure before the `0.7.x` diagnostic cycle
+- [REBASELINE_PLAYBOOK_0_7_1.md](./report/REBASELINE_PLAYBOOK_0_7_1.md): completed reproduction contract for the accepted `0.7.1` closure
 
-For `v0.6.0`, public reporting should cite the fresh `custom_v060_cmp_*`, `swe_smoke_c3_v060i`, and `swe_promoted_cmp_v060i_*` artifacts backed by matching manifests and trajectories. Custom remains the low-cost daily regression suite; the fixed SWE-bench Lite subsets are the higher-signal repository-repair smoke and compare lanes. They use checked-in generated official Lite metadata plus local runtime overrides and real `clone -> checkout -> diff -> test` semantics, with optional local mirrors for caching, but they are still a small fixed subset rather than a public full-dataset leaderboard claim.
+For `v0.7.1`, public reporting should cite `swe_promoted_cmp_v071r1_C3`, `swe_promoted_cmp_v071r1_C6`, `swe_promoted_support_v071r1_C4`, and the matching manifests, trajectories, and analysis reports. The accepted result is that `C3`, `C4`, and `C6` all land at `2/8 = 25.0%` on the fixed `8`-task promoted SWE lane; `C4` remains supporting and is not promoted. This is a noise-reduction and attribution-cleanup closure, not a throughput uplift release.
+
+The accepted `0.6.0` Custom compare artifacts remain `custom_v060_cmp_C3`, `custom_v060_cmp_C4`, and `custom_v060_cmp_C6`. Custom remains the low-cost daily regression suite; the fixed SWE-bench Lite subsets remain the higher-signal repository-repair smoke and compare lanes. They use checked-in generated official Lite metadata plus local runtime overrides and real `clone -> checkout -> diff -> test` semantics, with optional local mirrors for caching, but they are still a small fixed subset rather than a public full-dataset leaderboard claim.
 
 Archived historical promoted artifacts (v0.4.0 baseline, Custom results against the original 21-task suite):
 

@@ -2,6 +2,7 @@ import json
 import re
 from typing import Any
 
+from coder_agent.core.agent_errors import extract_first_test_target
 from coder_agent.core.agent_run_context import finalize_turn, record_trajectory_step, run_verification_hook
 from coder_agent.core.agent_types import (
     TERMINATION_MODEL_STOP,
@@ -31,30 +32,127 @@ def build_action_dict(tool_uses: list[dict[str, Any]]) -> dict[str, Any] | None:
     return {"tool": tool_uses[0]["name"], "args": tool_uses[0]["input"]}
 
 
-def check_retry_edit_policy(state: Any, tool_uses: list[dict[str, Any]]) -> str:
-    if not getattr(state, "awaiting_retry_verification", False):
-        return ""
+def _edit_paths(tool_uses: list[dict[str, Any]]) -> list[str]:
+    paths: list[str] = []
+    for tool_use in tool_uses:
+        if tool_use["name"] not in {"write_file", "patch_file"}:
+            continue
+        path = str(tool_use["input"].get("path", "")).strip()
+        if path:
+            paths.append(path)
+    return paths
 
-    write_paths = [
-        str(tool_use["input"].get("path", ""))
-        for tool_use in tool_uses
-        if tool_use["name"] == "write_file"
-    ]
+
+def _distinct_paths(paths: list[str]) -> list[str]:
+    return list(dict.fromkeys(path for path in paths if path))
+
+
+def _is_test_path(path: str) -> bool:
+    normalized = path.replace("\\", "/")
+    name = normalized.rsplit("/", 1)[-1]
+    return (
+        normalized.startswith("tests/")
+        or "/tests/" in normalized
+        or name.startswith("test_")
+        or name.endswith("_test.py")
+    )
+
+
+def _authorized_test_paths(state: Any) -> set[str]:
+    metadata = getattr(state, "task_metadata", {}) or {}
+    authorized = {
+        str(path).strip()
+        for path in metadata.get("authorized_test_edit_paths", [])
+        if str(path).strip()
+    }
+    authorized.update(
+        str(path).strip()
+        for path in metadata.get("verification_files", [])
+        if str(path).strip()
+    )
+    return authorized
+
+
+def check_retry_edit_policy(agent: Any, state: Any, tool_uses: list[dict[str, Any]]) -> str:
+    write_paths = _edit_paths(tool_uses)
     if not write_paths:
         return ""
 
-    distinct_paths = list(dict.fromkeys(path for path in write_paths if path))
+    distinct_paths = _distinct_paths(write_paths)
     if not distinct_paths:
         return ""
 
-    if state.retry_edit_target is None:
-        state.retry_edit_target = distinct_paths[0]
+    recovery_mode = getattr(state, "recovery_mode", "none")
+    if recovery_mode == "tool_error":
+        if state.retry_edit_target is None:
+            state.retry_edit_target = distinct_paths[0]
+        if any(path != state.retry_edit_target for path in distinct_paths):
+            return (
+                "The previous command already failed. Before rerunning tests, stay on one file only. "
+                f"You already started fixing `{state.retry_edit_target}`. Read other files if needed, "
+                "but do not edit a second file until you rerun the verification command."
+            )
 
-    if any(path != state.retry_edit_target for path in distinct_paths):
+    if recovery_mode != "verification":
+        return ""
+
+    metadata = getattr(state, "task_metadata", {}) or {}
+    if not metadata:
+        return ""
+
+    runtime_config = getattr(agent, "_experiment_config", {})
+    impl_paths = [path for path in distinct_paths if not _is_test_path(path)]
+    test_paths = [path for path in distinct_paths if _is_test_path(path)]
+    authorized_test_paths = _authorized_test_paths(state)
+    allow_unlisted = bool(
+        runtime_config.get(
+            "allow_unlisted_test_edits_during_verification_recovery",
+            False,
+        )
+    )
+
+    last_target = str(getattr(state, "last_verification_failure_target", "") or "")
+    failing_target_file = last_target.split("::", 1)[0] if last_target else ""
+    if test_paths and not allow_unlisted:
+        allowed_test_paths = set(authorized_test_paths)
+        if failing_target_file and _is_test_path(failing_target_file):
+            allowed_test_paths.add(failing_target_file)
+        unauthorized = [path for path in test_paths if path not in allowed_test_paths]
+        if unauthorized:
+            return (
+                "Verification recovery blocked an unlisted test edit. "
+                f"Authorized test paths: {', '.join(sorted(allowed_test_paths)) or '(none)'}. "
+                f"Attempted test edit(s): {', '.join(unauthorized)}. "
+                "Start with implementation files or benchmark-authorized regression tests only."
+            )
+
+    prefer_expected_targets = bool(
+        runtime_config.get("prefer_expected_patch_targets", True)
+    )
+    expected_targets = [str(path).strip() for path in metadata.get("expected_patch_targets", []) if str(path).strip()]
+    expected_impl_targets = [path for path in expected_targets if not _is_test_path(path)]
+    if (
+        test_paths
+        and expected_impl_targets
+        and not getattr(state, "verification_recovery_impl_paths", set())
+        and not authorized_test_paths
+        and prefer_expected_targets
+    ):
         return (
-            "The previous command already failed. Before rerunning tests, stay on one file only. "
-            f"You already started fixing `{state.retry_edit_target}`. Read other files if needed, "
-            "but do not edit a second file until you rerun the verification command."
+            "Verification recovery should start from implementation files before touching tests. "
+            f"Prefer expected implementation target(s): {', '.join(expected_impl_targets[:2])}."
+        )
+
+    max_impl_edits = int(
+        runtime_config.get("max_impl_edit_files_per_verification_recovery", 2)
+    )
+    next_impl_paths = set(getattr(state, "verification_recovery_impl_paths", set()))
+    next_impl_paths.update(impl_paths)
+    if max_impl_edits >= 0 and len(next_impl_paths) > max_impl_edits:
+        return (
+            "Verification recovery edit cap reached. "
+            f"You may edit at most {max_impl_edits} implementation file(s) before rerunning verification. "
+            f"Already touched: {', '.join(sorted(getattr(state, 'verification_recovery_impl_paths', set())))}."
         )
 
     return ""
@@ -146,10 +244,12 @@ async def handle_completion_turn(
         if not verification_result.passed:
             failure_summary = verification_result.summary.strip() or "Verification failed."
             failure_signature = failure_summary.splitlines()[0].strip()[:200]
+            failing_target = extract_first_test_target(failure_summary)
             repeated_failure = failure_signature == getattr(
                 state, "last_verification_failure_signature", None
             )
             state.last_verification_failure_signature = failure_signature
+            state.last_verification_failure_target = failing_target
             state.verification_failures += 1
             state.consecutive_verification_failures = (
                 state.consecutive_verification_failures + 1 if repeated_failure else 1
@@ -193,10 +293,13 @@ async def handle_completion_turn(
                 failure_summary,
                 repeated=repeated_failure or state.no_tool_completion_verification_failures > 1,
                 counted_attempt=counted_attempt,
+                preferred_patch_targets=list((getattr(state, "task_metadata", {}) or {}).get("expected_patch_targets", [])),
+                stronger_feedback=state.no_tool_completion_verification_failures > 1,
             )
             state.verification_recovery_action_seen = False
-            state.awaiting_retry_verification = True
+            state.recovery_mode = "verification"
             state.retry_edit_target = None
+            state.verification_recovery_impl_paths = set()
             state.exception_stage = "history.add_verification_feedback"
             await agent.history.add_message("assistant", clean_text or "[completion without tools]")
             await agent.history.add_message("user", guidance)

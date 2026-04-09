@@ -55,18 +55,21 @@ Path rules (IMPORTANT):
 Guidelines:
 - {planning_instruction}
 - Prefer small, targeted edits over full rewrites.
+- Prefer `patch_file` for local edits to existing files. Use `write_file` with `operation="write"` for new files or full rewrites only when the structure genuinely changes.
 - For from-scratch tasks, decide on one minimal API early and keep it stable.
 - If the task description does not specify a function signature, choose the simplest signature that directly fits the wording and do not introduce alternate wrappers unless required.
 - Implement the smallest working version before expanding tests or features.
 - Write tests only for behavior explicitly required by the task.
 - Keep tests compact. Do not generate a large test suite when the task only names a few required cases.
-- IMPORTANT: Always use tools (write_file, run_command) to implement changes.
+- IMPORTANT: Always use tools (patch_file, write_file, run_command) to implement changes.
   To create or overwrite a file use write_file with operation="write".
-  To make a targeted text replacement use write_file with operation="edit".
+  To make one or more targeted edits to an existing file use patch_file.
+  Use write_file with operation="edit" only for a single simple replacement when patch_file is unnecessary.
   Never describe code changes in text only — write the actual code to disk using the
   appropriate tool, then run it to verify.
 - After writing or editing code, run it (or run tests) to verify correctness.
 - If a command fails, read the error carefully and fix the root cause.
+- Do not use `| tail`, `| head`, or `| grep` to decide whether tests passed. Run the original verification command directly, then inspect output separately if needed.
 - If external verification fails after you try to stop, do not summarize again. Read the first failing test or traceback, make one targeted change, and rerun verification with tools.
 - After the first failing test run, read the failure output and the relevant file, then change either the implementation or the tests, not both in the same step unless the failure clearly requires both.
 - If you created both implementation and tests, avoid changing the public API after the first test run unless the task explicitly requires it.

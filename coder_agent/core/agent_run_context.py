@@ -180,11 +180,14 @@ async def seed_run_context(agent: Any, state: Any, user_input: str) -> None:
 def start_trajectory(agent: Any, state: Any, *, user_input: str, task_id: str) -> None:
     if not agent.trajectory_store:
         return
-    state.traj_id = agent.trajectory_store.start_trajectory(
-        task_id=task_id or user_input[:40],
-        experiment_id=agent.experiment_id,
-        config=agent.experiment_config,
-    )
+    start_kwargs = {
+        "task_id": task_id or user_input[:40],
+        "experiment_id": agent.experiment_id,
+        "config": agent.experiment_config,
+    }
+    if "task_metadata" in inspect.signature(agent.trajectory_store.start_trajectory).parameters:
+        start_kwargs["task_metadata"] = dict(getattr(state, "task_metadata", {}) or {})
+    state.traj_id = agent.trajectory_store.start_trajectory(**start_kwargs)
 
 
 async def add_decomposer_progress(agent: Any, state: Any) -> None:

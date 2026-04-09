@@ -1,6 +1,6 @@
 import pytest
 
-from coder_agent.tools.file_tools import ListDirTool, ReadFileTool, WriteFileTool
+from coder_agent.tools.file_tools import ListDirTool, PatchFileTool, ReadFileTool, WriteFileTool
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +143,97 @@ async def test_write_file_edit_requires_old_text(tmp_path):
     result = await tool.execute(operation="edit", path="code.py", old_text="", new_text="y")
 
     assert "old_text is required" in result
+
+
+# ---------------------------------------------------------------------------
+# PatchFileTool
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_patch_file_single_edit_success(tmp_path):
+    target = tmp_path / "code.py"
+    target.write_text("def foo():\n    return 1\n", encoding="utf-8")
+
+    tool = PatchFileTool(tmp_path)
+    result = await tool.execute(
+        path="code.py",
+        edits=[{"old_text": "return 1", "new_text": "return 2"}],
+    )
+
+    assert "Patched: code.py" in result
+    assert "Applied edits: 1/1" in result
+    assert target.read_text(encoding="utf-8") == "def foo():\n    return 2\n"
+
+
+@pytest.mark.asyncio
+async def test_patch_file_multiple_edits_success(tmp_path):
+    target = tmp_path / "code.py"
+    target.write_text(
+        "def foo():\n    value = 1\n    return value\n",
+        encoding="utf-8",
+    )
+
+    tool = PatchFileTool(tmp_path)
+    result = await tool.execute(
+        path="code.py",
+        edits=[
+            {"old_text": "value = 1", "new_text": "value = 2"},
+            {"old_text": "return value", "new_text": "return value * 2"},
+        ],
+    )
+
+    assert "Applied edits: 2/2" in result
+    assert "matches=1, expected=1" in result
+    assert target.read_text(encoding="utf-8") == (
+        "def foo():\n    value = 2\n    return value * 2\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_patch_file_rejects_unexpected_match_count(tmp_path):
+    target = tmp_path / "code.py"
+    target.write_text("x = 1\nx = 1\n", encoding="utf-8")
+
+    tool = PatchFileTool(tmp_path)
+    result = await tool.execute(
+        path="code.py",
+        edits=[{"old_text": "x = 1", "new_text": "x = 2"}],
+    )
+
+    assert result.startswith("Error: patch_file edit #1 match count mismatch")
+    assert "actual_matches=2" in result
+    assert target.read_text(encoding="utf-8") == "x = 1\nx = 1\n"
+
+
+@pytest.mark.asyncio
+async def test_patch_file_is_atomic_when_later_edit_fails(tmp_path):
+    target = tmp_path / "code.py"
+    original = "def foo():\n    return 1\n"
+    target.write_text(original, encoding="utf-8")
+
+    tool = PatchFileTool(tmp_path)
+    result = await tool.execute(
+        path="code.py",
+        edits=[
+            {"old_text": "return 1", "new_text": "return 2"},
+            {"old_text": "missing anchor", "new_text": "replacement"},
+        ],
+    )
+
+    assert result.startswith("Error: patch_file edit #2 match count mismatch")
+    assert "Applied edits before failure: 1/2" in result
+    assert target.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.asyncio
+async def test_patch_file_rejects_path_escape_and_missing_file(tmp_path):
+    tool = PatchFileTool(tmp_path)
+
+    escaped = await tool.execute(path="../escape.py", edits=[{"old_text": "x", "new_text": "y"}])
+    missing = await tool.execute(path="missing.py", edits=[{"old_text": "x", "new_text": "y"}])
+
+    assert escaped.startswith("Error: path escapes workspace")
+    assert missing.startswith("Error: file not found: missing.py")
 
 
 # ---------------------------------------------------------------------------
