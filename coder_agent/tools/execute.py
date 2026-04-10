@@ -1,6 +1,7 @@
 """Tool execution utilities with parallel support."""
 
 import asyncio
+import time
 from typing import Any
 
 from coder_agent.tools.base import Tool
@@ -12,6 +13,7 @@ def _is_tool_error_content(content: Any) -> bool:
 
 
 async def _execute_single(call: Any, tool_dict: dict[str, Tool]) -> dict[str, Any]:
+    started_at = time.perf_counter()
     try:
         call_id = call["id"] if isinstance(call, dict) else call.id
         call_name = call["name"] if isinstance(call, dict) else call.name
@@ -23,12 +25,14 @@ async def _execute_single(call: Any, tool_dict: dict[str, Tool]) -> dict[str, An
             "content": f"Error: malformed tool call ({e})",
             "is_error": True,
             "error_kind": "tool_error",
+            "duration_ms": int((time.perf_counter() - started_at) * 1000),
         }
     response = {"type": "tool_result", "tool_use_id": call_id}
     if call_name == "__budget_error__":
         response["content"] = str(call_input.get("message", "Error: tool execution failed"))
         response["is_error"] = True
         response["error_kind"] = "tool_error"
+        response["duration_ms"] = int((time.perf_counter() - started_at) * 1000)
         return response
     try:
         result = await tool_dict[call_name].execute(**call_input)
@@ -44,6 +48,7 @@ async def _execute_single(call: Any, tool_dict: dict[str, Tool]) -> dict[str, An
         response["content"] = f"Error: {e}"
         response["is_error"] = True
         response["error_kind"] = "tool_error"
+    response["duration_ms"] = int((time.perf_counter() - started_at) * 1000)
     return response
 
 

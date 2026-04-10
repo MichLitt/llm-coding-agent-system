@@ -7,6 +7,7 @@ from coder_agent.core.agent_types import ModelConfig
 from coder_agent.core.llm_client import LLMClient
 from coder_agent.core.session import AgentSession
 from coder_agent.memory.manager import MemoryManager
+from coder_agent.memory.run_state import RunStateStore
 from coder_agent.memory.trajectory import TrajectoryStore
 
 
@@ -43,7 +44,12 @@ def make_agent(
     no_memory: bool = False,
     experiment_id: str = "default",
     trajectory_store: TrajectoryStore | None = None,
+    run_state_store: RunStateStore | None = None,
+    preset_name: str | None = None,
 ) -> Agent:
+    resolved_run_state_store = run_state_store
+    if resolved_run_state_store is None and cfg.agent.enable_run_state:
+        resolved_run_state_store = make_run_state_store()
     # Resolve LLM profile — never mutates global cfg.model.*
     resolved_profile = resolve_llm_profile(llm_profile)
     if model:
@@ -75,10 +81,14 @@ def make_agent(
         model_config=model_cfg,
         memory=memory,
         trajectory_store=trajectory_store,
+        run_state_store=resolved_run_state_store,
         experiment_id=experiment_id,
         experiment_config=resolved_agent_config,
         runtime_config=resolved_experiment_config,
         workspace=resolved_workspace,
+        llm_profile_name=resolved_profile.name,
+        preset_name=preset_name,
+        owns_run_state_store=run_state_store is None and resolved_run_state_store is not None,
     )
     return agent
 
@@ -87,6 +97,11 @@ def make_trajectory_store(trajectory_dir: str | None) -> TrajectoryStore | None:
     if not trajectory_dir:
         return None
     return TrajectoryStore(Path(trajectory_dir))
+
+
+def make_run_state_store(db_path: str | Path | None = None) -> RunStateStore:
+    path = Path(db_path).resolve() if db_path is not None else cfg.agent.run_state_db_path
+    return RunStateStore(path)
 
 
 def make_session(

@@ -3,6 +3,7 @@
 import pytest
 
 from coder_agent.config import Config, validate_config, AgentConfig, ToolsConfig
+from coder_agent.cli.factory import make_agent
 
 
 def _make_config(max_steps=15, max_retries=3, terminal_timeout=30) -> Config:
@@ -54,3 +55,20 @@ def test_terminal_timeout_negative_raises_value_error():
     cfg = _make_config(terminal_timeout=-10)
     with pytest.raises(ValueError, match="terminal_timeout"):
         validate_config(cfg)
+
+
+def test_make_agent_skips_run_state_store_when_disabled(monkeypatch, tmp_path):
+    from coder_agent.cli import factory as factory_module
+
+    monkeypatch.setattr(factory_module.cfg.agent, "enable_run_state", False)
+
+    def fail_make_run_state_store(*args, **kwargs):
+        raise AssertionError("make_run_state_store should not be called when disabled")
+
+    monkeypatch.setattr(factory_module, "make_run_state_store", fail_make_run_state_store)
+
+    agent = make_agent(no_memory=True, workspace=tmp_path)
+    try:
+        assert agent.run_state_store is None
+    finally:
+        agent.close()

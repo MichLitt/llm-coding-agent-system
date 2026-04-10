@@ -79,6 +79,10 @@ class AgentConfig:
         "CODER_CHECKLIST_ENABLED",
         str(_Y.get("agent", {}).get("enable_checklist", False)),
     ).lower() == "true"
+    enable_run_state: bool = os.environ.get(
+        "CODER_RUN_STATE_ENABLED",
+        str(_Y.get("agent", {}).get("enable_run_state", True)),
+    ).lower() == "true"
     verbose: bool = os.environ.get("CODER_VERBOSE", "false").lower() == "true"
     # added by Stream A — defaults only
     doom_loop_threshold: int = int(_Y.get("agent", {}).get("doom_loop_threshold", 2))
@@ -91,7 +95,12 @@ class AgentConfig:
             os.environ.get("CODER_WORKSPACE", str(_ROOT / "workspace"))
         ).resolve()
     )
-    memory_db_path: Path = field(default_factory=lambda: _ROOT / "memory" / "agent_memory.db")
+    memory_db_path: Path = field(
+        default_factory=lambda: (_ROOT / _Y.get("agent", {}).get("memory_db_path", "memory/agent_memory.db")).resolve()
+    )
+    run_state_db_path: Path = field(
+        default_factory=lambda: (_ROOT / _Y.get("agent", {}).get("run_state_db_path", "memory/run_state.db")).resolve()
+    )
 
 
 @dataclass
@@ -134,12 +143,19 @@ class EvalConfig:
 
 
 @dataclass
+class ServiceConfig:
+    host: str = _Y.get("service", {}).get("host", "127.0.0.1")
+    port: int = int(_Y.get("service", {}).get("port", 8000))
+
+
+@dataclass
 class Config:
     model: ModelConfig = field(default_factory=ModelConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     context: ContextConfig = field(default_factory=ContextConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
+    service: ServiceConfig = field(default_factory=ServiceConfig)
 
 
 # ---------------------------------------------------------------------------

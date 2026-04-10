@@ -109,10 +109,29 @@ Available in-session commands:
 uv run python -m coder_agent run "Create a Flask API with user auth"
 ```
 
+Single-task runs now emit a persistent `run_id`. You can resume a prior run from the latest checkpoint:
+
+```bash
+uv run python -m coder_agent run --resume <run_id>
+```
+
+Inspect recent runs and a specific checkpoint before resuming:
+
+```bash
+uv run python -m coder_agent runs list --limit 20
+uv run python -m coder_agent runs show <run_id>
+```
+
 Switch provider with `--llm-profile`:
 
 ```bash
 uv run python -m coder_agent run "Create a Flask API" --llm-profile glm_5
+```
+
+Start the local runtime API service:
+
+```bash
+uv run python -m coder_agent serve --host 127.0.0.1 --port 8000
 ```
 
 ### 4. Run one benchmark task

@@ -61,7 +61,7 @@ class FakeAgent:
         self._model_cfg = type("Cfg", (), {"model": "fake-model"})()
         self.memory = memory
 
-    def run(self, user_text: str):
+    def run(self, user_text: str, **kwargs):
         self.calls.append(user_text)
         return type(
             "TurnResult",
@@ -77,6 +77,7 @@ class FakeAgent:
                 "final_status": "success",
                 "termination_reason": "model_stop",
                 "error_details": [],
+                "extra": {"run_id": kwargs.get("run_id") or "run-demo-1"},
             },
         )()
 
@@ -178,3 +179,31 @@ def test_run_command_closes_agent(monkeypatch):
     assert result.exit_code == 0
     assert fake_agent.calls == ["demo task"]
     assert fake_agent.close_calls == 1
+
+
+def test_run_command_prints_run_id_and_supports_resume(monkeypatch):
+    fake_agent = FakeAgent()
+    runner = CliRunner()
+
+    class FakeRunStateStore:
+        def get_resume_target(self, run_id):
+            return {
+                "run": {"task_description": "demo task", "status": "running"},
+                "checkpoint": {"step_index": 0},
+                "resume_summary": "summary",
+                "resumable": True,
+                "resume_error": None,
+            }
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(main_module, "make_agent", lambda **kwargs: fake_agent)
+    monkeypatch.setattr(main_module, "make_trajectory_store", lambda _: None)
+    monkeypatch.setattr(main_module.cfg.agent, "enable_run_state", True)
+    monkeypatch.setattr(main_module, "make_run_state_store", lambda: FakeRunStateStore())
+
+    result = runner.invoke(cli, ["run", "--resume", "run-123", "demo task"])
+
+    assert result.exit_code == 0
+    assert "resumed_run_id=run-123" in result.output
