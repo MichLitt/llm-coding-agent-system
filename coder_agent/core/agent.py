@@ -3,6 +3,8 @@
 import asyncio
 import dataclasses
 import sys
+import uuid
+from threading import Event
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,7 @@ from coder_agent.core.agent_prompt import SYSTEM_PROMPT, _build_system_prompt
 from coder_agent.core.agent_types import (
     TERMINATION_LOOP_EXCEPTION,
     TERMINATION_MAX_STEPS,
+    TERMINATION_CANCELLED,
     TERMINATION_MODEL_STOP,
     TERMINATION_RETRY_EXHAUSTED,
     TERMINATION_TOOL_EXCEPTION,
@@ -30,6 +33,7 @@ from coder_agent.core.agent_types import (
 )
 from coder_agent.core.context import MessageHistory
 from coder_agent.core.tool_registry import build_tools
+from coder_agent.memory.run_state import RunStateStore, current_git_commit
 from coder_agent.memory.trajectory import TrajectoryStore
 from coder_agent.tools.base import Tool
 from coder_agent.tools.execute import execute_tools
@@ -47,10 +51,14 @@ class Agent:
         client: Any | None = None,
         memory: Any | None = None,
         trajectory_store: TrajectoryStore | None = None,
+        run_state_store: RunStateStore | None = None,
         experiment_id: str = "default",
         experiment_config: dict | None = None,
         runtime_config: dict[str, Any] | None = None,
         workspace: Path | None = None,
+        llm_profile_name: str | None = None,
+        preset_name: str | None = None,
+        owns_run_state_store: bool = False,
     ):
         self._model_cfg = model_config or ModelConfig()
         self.tools = tools
@@ -63,7 +71,11 @@ class Agent:
         self.client = client
         self.memory = memory
         self.trajectory_store = trajectory_store
+        self.run_state_store = run_state_store
         self._closed = False
+        self.llm_profile_name = llm_profile_name
+        self.preset_name = preset_name
+        self._owns_run_state_store = owns_run_state_store
 
         if system is not None:
             self.system = system
@@ -122,7 +134,66 @@ class Agent:
             self.client.close()
         if self.memory is not None and hasattr(self.memory, "close"):
             self.memory.close()
+        if self._owns_run_state_store and self.run_state_store is not None and hasattr(self.run_state_store, "close"):
+            self.run_state_store.close()
         self._closed = True
+
+    def _build_run_config_payload(self) -> dict[str, Any]:
+        return {
+            "agent_config": dict(self.experiment_config or {}),
+            "runtime_config": dict(self._experiment_config or {}),
+        }
+
+    def _prepare_run(
+        self,
+        *,
+        user_input: str,
+        task_id: str,
+        run_id: str | None,
+        resume: bool,
+    ) -> tuple[str, str | None, dict[str, Any] | None]:
+        if self.run_state_store is None:
+            if resume:
+                raise ValueError("Run-state persistence is disabled; resume is unavailable.")
+            return user_input, None, None
+
+        resolved_run_id = run_id or uuid.uuid4().hex
+        existing_run = self.run_state_store.get_run(resolved_run_id)
+        if resume:
+            if existing_run is None:
+                raise ValueError(f"Run {resolved_run_id} not found.")
+            resolved_user_input = str(existing_run.get("task_description") or "")
+            if user_input and resolved_user_input != user_input:
+                raise ValueError(
+                    f"Run {resolved_run_id} task mismatch. "
+                    "Resume must use the original task description."
+                )
+            if not self.run_state_store.is_resumable_status(existing_run.get("status")):
+                raise ValueError(
+                    f"Run {resolved_run_id} is already {existing_run['status']} and cannot be resumed."
+                )
+            checkpoint = self.run_state_store.latest_checkpoint(resolved_run_id)
+            resume_state = dict(checkpoint.get("loop_state_json") or {}) if checkpoint else {}
+            resume_state["resume_summary"] = self.run_state_store.build_resume_summary(resolved_run_id)
+            resume_state["run_started_at"] = existing_run.get("started_at") or resume_state.get("start_time")
+            return resolved_user_input, resolved_run_id, resume_state
+
+        if existing_run is not None:
+            if existing_run.get("status") == "pending" and existing_run.get("task_description") == user_input:
+                return user_input, resolved_run_id, None
+            raise ValueError(f"Run {resolved_run_id} already exists.")
+        self.run_state_store.create_run(
+            resolved_run_id,
+            user_input,
+            self.experiment_id,
+            task_id=task_id or None,
+            preset=self.preset_name,
+            llm_profile=self.llm_profile_name,
+            workspace_path=str(self.workspace),
+            git_commit=current_git_commit(),
+            config_json=self._build_run_config_payload(),
+        )
+        return user_input, resolved_run_id, None
 
     def _make_result(
         self,
@@ -211,6 +282,10 @@ class Agent:
         enforce_stop_verification: bool = True,
         auto_complete_on_verification: bool = False,
         max_steps: int | None = None,
+        run_id: str | None = None,
+        resume: bool = False,
+        resume_state: dict[str, Any] | None = None,
+        cancel_event: Event | None = None,
     ) -> TurnResult:
         result = await run_agent_loop(
             self,
@@ -224,6 +299,10 @@ class Agent:
             auto_complete_on_verification=auto_complete_on_verification,
             max_steps=max_steps,
             execute_tools_fn=execute_tools,
+            run_id=run_id,
+            run_state_store=self.run_state_store,
+            resume_state=resume_state if resume else None,
+            cancel_event=cancel_event,
         )
         if record_memory and self.memory:
             self._record_memory_result(user_input, result)
@@ -241,6 +320,10 @@ class Agent:
         enforce_stop_verification: bool = True,
         auto_complete_on_verification: bool = False,
         max_steps: int | None = None,
+        run_id: str | None = None,
+        resume: bool = False,
+        resume_state: dict[str, Any] | None = None,
+        cancel_event: Event | None = None,
     ) -> TurnResult:
         try:
             return await self._loop(
@@ -254,6 +337,10 @@ class Agent:
                 enforce_stop_verification=enforce_stop_verification,
                 auto_complete_on_verification=auto_complete_on_verification,
                 max_steps=max_steps,
+                run_id=run_id,
+                resume=resume,
+                resume_state=resume_state,
+                cancel_event=cancel_event,
             )
         finally:
             if self.client is not None and hasattr(self.client, "aclose"):
@@ -271,10 +358,19 @@ class Agent:
         enforce_stop_verification: bool = True,
         auto_complete_on_verification: bool = False,
         max_steps: int | None = None,
+        run_id: str | None = None,
+        resume: bool = False,
+        cancel_event: Event | None = None,
     ) -> TurnResult:
+        prepared_user_input, prepared_run_id, prepared_resume_state = self._prepare_run(
+            user_input=user_input,
+            task_id=task_id,
+            run_id=run_id,
+            resume=resume,
+        )
         result = asyncio.run(
             self._run_with_cleanup(
-                user_input,
+                prepared_user_input,
                 task_id=task_id,
                 task_metadata=task_metadata,
                 finalize_trajectory=finalize_trajectory,
@@ -284,10 +380,18 @@ class Agent:
                 enforce_stop_verification=enforce_stop_verification,
                 auto_complete_on_verification=auto_complete_on_verification,
                 max_steps=max_steps,
+                run_id=prepared_run_id,
+                resume=resume,
+                resume_state=prepared_resume_state,
+                cancel_event=cancel_event,
             )
         )
+        if prepared_run_id is not None:
+            result.extra["run_id"] = prepared_run_id
+            if resume:
+                result.extra["resumed_task"] = prepared_user_input
         if record_memory and self.memory:
-            self._record_memory_result(user_input, result)
+            self._record_memory_result(prepared_user_input, result)
         return result
 
 
@@ -297,6 +401,7 @@ __all__ = [
     "SYSTEM_PROMPT",
     "TERMINATION_LOOP_EXCEPTION",
     "TERMINATION_MAX_STEPS",
+    "TERMINATION_CANCELLED",
     "TERMINATION_MODEL_STOP",
     "TERMINATION_RETRY_EXHAUSTED",
     "TERMINATION_TOOL_EXCEPTION",

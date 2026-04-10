@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 from coder_agent.config import cfg
+from coder_agent.memory.run_state import RunMetrics, RunStateStore
 from coder_agent.core.agent_run_context import (
     add_decomposer_progress,
     finalize_turn,
@@ -29,6 +30,7 @@ from coder_agent.core.agent_turns import (
     print_tool_call_preview,
 )
 from coder_agent.core.agent_types import (
+    TERMINATION_CANCELLED,
     TERMINATION_LOOP_EXCEPTION,
     TERMINATION_MAX_STEPS,
     TERMINATION_RETRY_EXHAUSTED,
@@ -42,8 +44,10 @@ from coder_agent.core.agent_types import (
 @dataclass
 class LoopState:
     start_time: float = field(default_factory=time.time)
+    run_id: str | None = None
     steps: int = 0
     all_tool_calls: list[str] = field(default_factory=list)
+    successful_tool_calls: int = 0
     retry_count: int = 0
     retry_steps: int = 0
     last_error_type: str | None = None
@@ -73,6 +77,7 @@ class LoopState:
     db_records_written: int = 0
     ad_hoc_install_count: int = 0
     task_metadata: dict[str, Any] = field(default_factory=dict)
+    resume_summary: str = ""
 
 
 @dataclass
@@ -151,6 +156,144 @@ def _attach_activation_counters(result: TurnResult, state: LoopState) -> TurnRes
     result.extra["memory_injections"] = getattr(state, "memory_injections", 0)
     result.extra["db_records_written"] = getattr(state, "db_records_written", 0)
     return result
+
+
+def _serialize_loop_state(state: LoopState) -> dict[str, Any]:
+    return {
+        "start_time": state.start_time,
+        "steps": state.steps,
+        "all_tool_calls": list(state.all_tool_calls),
+        "successful_tool_calls": state.successful_tool_calls,
+        "retry_count": state.retry_count,
+        "retry_steps": state.retry_steps,
+        "last_error_type": state.last_error_type,
+        "last_error_signature": state.last_error_signature,
+        "verification_attempts": state.verification_attempts,
+        "verification_failures": state.verification_failures,
+        "verification_recovery_action_seen": state.verification_recovery_action_seen,
+        "verification_recovery_impl_paths": sorted(state.verification_recovery_impl_paths),
+        "no_tool_completion_verification_failures": state.no_tool_completion_verification_failures,
+        "last_verification_failure_signature": state.last_verification_failure_signature,
+        "last_verification_failure_target": state.last_verification_failure_target,
+        "consecutive_verification_failures": state.consecutive_verification_failures,
+        "recovery_mode": state.recovery_mode,
+        "retry_edit_target": state.retry_edit_target,
+        "consecutive_identical_failures": state.consecutive_identical_failures,
+        "last_failing_call_sig": state.last_failing_call_sig,
+        "doom_loop_warnings_injected": state.doom_loop_warnings_injected,
+        "observations_compressed": state.observations_compressed,
+        "compaction_events": state.compaction_events,
+        "tried_approaches": list(state.tried_approaches),
+        "approach_memory_injections": state.approach_memory_injections,
+        "cross_task_memory_injected": state.cross_task_memory_injected,
+        "memory_injections": state.memory_injections,
+        "db_records_written": state.db_records_written,
+        "ad_hoc_install_count": state.ad_hoc_install_count,
+        "resume_summary": state.resume_summary,
+    }
+
+
+def _restore_loop_state(resume_state: dict[str, Any] | None) -> LoopState:
+    state = LoopState()
+    if not resume_state:
+        return state
+    state.start_time = float(resume_state.get("run_started_at") or resume_state.get("start_time") or time.time())
+    state.steps = int(resume_state.get("steps", state.steps))
+    state.all_tool_calls = list(resume_state.get("all_tool_calls", state.all_tool_calls))
+    state.successful_tool_calls = int(resume_state.get("successful_tool_calls", 0))
+    state.retry_count = int(resume_state.get("retry_count", 0))
+    state.retry_steps = int(resume_state.get("retry_steps", 0))
+    state.last_error_type = resume_state.get("last_error_type")
+    state.last_error_signature = resume_state.get("last_error_signature")
+    state.verification_attempts = int(resume_state.get("verification_attempts", 0))
+    state.verification_failures = int(resume_state.get("verification_failures", 0))
+    state.verification_recovery_action_seen = bool(resume_state.get("verification_recovery_action_seen", False))
+    state.verification_recovery_impl_paths = set(resume_state.get("verification_recovery_impl_paths", []))
+    state.no_tool_completion_verification_failures = int(
+        resume_state.get("no_tool_completion_verification_failures", 0)
+    )
+    state.last_verification_failure_signature = resume_state.get("last_verification_failure_signature")
+    state.last_verification_failure_target = resume_state.get("last_verification_failure_target")
+    state.consecutive_verification_failures = int(resume_state.get("consecutive_verification_failures", 0))
+    state.recovery_mode = str(resume_state.get("recovery_mode", "none"))
+    state.retry_edit_target = resume_state.get("retry_edit_target")
+    state.consecutive_identical_failures = int(resume_state.get("consecutive_identical_failures", 0))
+    state.last_failing_call_sig = resume_state.get("last_failing_call_sig")
+    state.doom_loop_warnings_injected = int(resume_state.get("doom_loop_warnings_injected", 0))
+    state.observations_compressed = int(resume_state.get("observations_compressed", 0))
+    state.compaction_events = int(resume_state.get("compaction_events", 0))
+    state.tried_approaches = list(resume_state.get("tried_approaches", []))
+    state.approach_memory_injections = int(resume_state.get("approach_memory_injections", 0))
+    state.cross_task_memory_injected = bool(resume_state.get("cross_task_memory_injected", False))
+    state.memory_injections = int(resume_state.get("memory_injections", 0))
+    state.db_records_written = int(resume_state.get("db_records_written", 0))
+    state.ad_hoc_install_count = int(resume_state.get("ad_hoc_install_count", 0))
+    state.resume_summary = str(resume_state.get("resume_summary", "") or "")
+    return state
+
+
+def _build_run_metrics(agent: Any, state: LoopState) -> RunMetrics:
+    total_tool_calls = len(state.all_tool_calls)
+    success_rate = None if total_tool_calls == 0 else state.successful_tool_calls / total_tool_calls
+    return RunMetrics(
+        total_steps=state.steps,
+        total_tool_calls=total_tool_calls,
+        total_tokens=agent.history.total_tokens,
+        tool_success_rate=success_rate,
+    )
+
+
+def _record_tool_audit(
+    store: RunStateStore | None,
+    run_id: str | None,
+    step_index: int,
+    tool_uses: list[dict[str, Any]],
+    tool_results: list[dict[str, Any]],
+) -> None:
+    if store is None or not run_id:
+        return
+    tool_inputs = {str(tool_use.get("id", "")): tool_use for tool_use in tool_uses}
+    for tool_result in tool_results:
+        tool_use_id = str(tool_result.get("tool_use_id", "") or "")
+        tool_input = tool_inputs.get(tool_use_id, {})
+        store.record_tool_call(
+            run_id,
+            step_index,
+            tool_use_id=tool_use_id,
+            tool_name=str(tool_input.get("name") or "unknown"),
+            args=tool_input.get("input", {}),
+            result_text=str(tool_result.get("content", "")),
+            is_error=bool(tool_result.get("is_error")),
+            error_kind=str(tool_result.get("error_kind")) if tool_result.get("error_kind") else None,
+            duration_ms=int(tool_result.get("duration_ms", 0) or 0),
+        )
+
+
+def _record_step_checkpoint(
+    store: RunStateStore | None,
+    run_id: str | None,
+    state: LoopState,
+    *,
+    thought: str,
+    observation: str,
+    tool_call_count: int,
+    had_error: bool,
+    step_tokens: int,
+    step_duration_ms: int,
+) -> None:
+    if store is None or not run_id:
+        return
+    store.record_step(
+        run_id,
+        max(0, state.steps - 1),
+        thought=thought,
+        observation=observation,
+        tool_call_count=tool_call_count,
+        had_error=had_error,
+        step_tokens=step_tokens,
+        step_duration_ms=step_duration_ms,
+        loop_state=_serialize_loop_state(state),
+    )
 
 
 def _remove_messages_with_prefix(history: Any, prefix: str) -> None:
@@ -272,6 +415,12 @@ def _configure_task_tool_state(agent: Any, state: LoopState) -> None:
     state.ad_hoc_install_count = 0
 
 
+def _restore_task_tool_state(agent: Any, state: LoopState) -> None:
+    run_command_tool = agent.tool_dict.get("run_command")
+    if run_command_tool is not None and hasattr(run_command_tool, "ad_hoc_install_count"):
+        run_command_tool.ad_hoc_install_count = int(getattr(state, "ad_hoc_install_count", 0))
+
+
 def _sync_tool_state(agent: Any, state: LoopState) -> None:
     run_command_tool = agent.tool_dict.get("run_command")
     if run_command_tool is not None and hasattr(run_command_tool, "ad_hoc_install_count"):
@@ -304,20 +453,67 @@ async def run_agent_loop(
     auto_complete_on_verification: bool = False,
     max_steps: int | None = None,
     execute_tools_fn: Callable[[list[dict[str, Any]], dict[str, Any]], Awaitable[list[dict[str, Any]]]],
+    run_id: str | None = None,
+    run_state_store: RunStateStore | None = None,
+    resume_state: dict[str, Any] | None = None,
+    cancel_event: Any | None = None,
 ) -> TurnResult:
-    state = LoopState()
+    state = _restore_loop_state(resume_state)
+    state.run_id = run_id
     state.task_metadata = dict(task_metadata or {})
     token_printer = _TokenPrinter(agent)
     effective_max_steps = max_steps if max_steps is not None else cfg.agent.max_steps
 
+    def finalize_result(result: TurnResult) -> TurnResult:
+        if run_state_store is not None and run_id:
+            error_summary = "\n".join(result.error_details) if result.error_details else None
+            run_state_store.finish_run(
+                run_id,
+                result.final_status,
+                result.termination_reason,
+                error_summary,
+                _build_run_metrics(agent, state),
+            )
+            result.extra["run_id"] = run_id
+        return _attach_activation_counters(result, state)
+
     _configure_task_tool_state(agent, state)
+    if resume_state:
+        _restore_task_tool_state(agent, state)
+    if run_state_store is not None and run_id:
+        run_state_store.start_run(run_id)
     await seed_run_context(agent, state, user_input)
+    if state.resume_summary:
+        state.exception_stage = "history.add_resume_summary"
+        await agent.history.add_message("user", f"[Resume context]\n{state.resume_summary}")
     start_trajectory(agent, state, user_input=user_input, task_id=task_id)
 
+    def cancel_requested() -> bool:
+        return bool(cancel_event is not None and getattr(cancel_event, "is_set", lambda: False)())
+
+    def cancelled_result(message: str = "Run cancelled") -> TurnResult:
+        return finalize_result(
+            finalize_turn(
+                agent,
+                state,
+                user_input=user_input,
+                finalize_trajectory=finalize_trajectory,
+                content=message,
+                success=False,
+                final_status="cancelled",
+                termination_reason=TERMINATION_CANCELLED,
+                error_details=[message],
+            )
+        )
+
     try:
-        for _ in range(effective_max_steps):
+        remaining_steps = max(0, effective_max_steps - state.steps)
+        for _ in range(remaining_steps):
+            if cancel_requested():
+                return cancelled_result()
             state.steps += 1
             step_start = time.time()
+            tokens_before_step = agent.history.total_tokens
             token_printer.reset()
             agent.history.truncate()
             await _maybe_compact_history(agent, state)
@@ -345,6 +541,17 @@ async def run_agent_loop(
 
             if turn.parse_errors and not turn.tool_uses:
                 await handle_parse_only_turn(agent, state, turn, step_start=step_start)
+                _record_step_checkpoint(
+                    run_state_store,
+                    run_id,
+                    state,
+                    thought=turn.text_content or "[tool call parse failure]",
+                    observation=turn.parse_feedback,
+                    tool_call_count=0,
+                    had_error=True,
+                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_duration_ms=int((time.time() - step_start) * 1000),
+                )
                 continue
 
             if not turn.tool_uses:
@@ -359,8 +566,34 @@ async def run_agent_loop(
                     enforce_stop_verification=enforce_stop_verification,
                     step_start=step_start,
                 )
+                completion_observation = ""
                 if completion_result is not None:
-                    return _attach_activation_counters(completion_result, state)
+                    completion_observation = completion_result.content
+                    _record_step_checkpoint(
+                        run_state_store,
+                        run_id,
+                        state,
+                        thought=turn.text_content,
+                        observation=completion_observation,
+                        tool_call_count=0,
+                        had_error=not completion_result.success,
+                        step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                        step_duration_ms=int((time.time() - step_start) * 1000),
+                    )
+                    return finalize_result(completion_result)
+                if agent.history.messages:
+                    completion_observation = str(agent.history.messages[-1].get("content", ""))
+                _record_step_checkpoint(
+                    run_state_store,
+                    run_id,
+                    state,
+                    thought=turn.text_content,
+                    observation=completion_observation or turn.text_content,
+                    tool_call_count=0,
+                    had_error=False,
+                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_duration_ms=int((time.time() - step_start) * 1000),
+                )
                 continue
 
             retry_policy_feedback = check_retry_edit_policy(agent, state, turn.tool_uses)
@@ -371,6 +604,17 @@ async def run_agent_loop(
                     turn,
                     feedback=retry_policy_feedback,
                     step_start=step_start,
+                )
+                _record_step_checkpoint(
+                    run_state_store,
+                    run_id,
+                    state,
+                    thought=turn.text_content or "[retry edit policy violation]",
+                    observation=retry_policy_feedback,
+                    tool_call_count=len(turn.tool_uses),
+                    had_error=True,
+                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_duration_ms=int((time.time() - step_start) * 1000),
                 )
                 continue
 
@@ -383,7 +627,28 @@ async def run_agent_loop(
 
             state.exception_stage = "tools.execute"
             tool_results = await execute_tools_fn(turn.tool_uses, agent.tool_dict)
+            if cancel_requested():
+                _record_step_checkpoint(
+                    run_state_store,
+                    run_id,
+                    state,
+                    thought=turn.text_content,
+                    observation="Run cancelled",
+                    tool_call_count=len(turn.tool_uses),
+                    had_error=True,
+                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_duration_ms=int((time.time() - step_start) * 1000),
+                )
+                return cancelled_result()
             _sync_tool_state(agent, state)
+            state.successful_tool_calls += sum(1 for tool_result in tool_results if not tool_result.get("is_error"))
+            _record_tool_audit(
+                run_state_store,
+                run_id,
+                max(0, state.steps - 1),
+                turn.tool_uses,
+                tool_results,
+            )
             for tool_result in tool_results:
                 status = "ERR" if tool_result.get("is_error") else "ok"
                 preview = str(tool_result.get("content", "")).split("\n")[0][:80]
@@ -412,19 +677,30 @@ async def run_agent_loop(
                     error_type="ToolError",
                     is_retry=False,
                 )
-                return _attach_activation_counters(
+                hard_error = str(batch.hard_tool_exception.get("content", "Error: tool execution failed"))
+                _record_step_checkpoint(
+                    run_state_store,
+                    run_id,
+                    state,
+                    thought=turn.text_content,
+                    observation=batch.combined_observation or hard_error,
+                    tool_call_count=len(turn.tool_uses),
+                    had_error=True,
+                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_duration_ms=int((time.time() - step_start) * 1000),
+                )
+                return finalize_result(
                     finalize_turn(
                         agent,
                         state,
                         user_input=user_input,
                         finalize_trajectory=finalize_trajectory,
-                        content=str(batch.hard_tool_exception.get("content", "Error: tool execution failed")),
+                        content=hard_error,
                         success=False,
                         final_status="failed",
                         termination_reason=TERMINATION_TOOL_EXCEPTION,
-                        error_details=[str(batch.hard_tool_exception.get("content", "Error: tool execution failed"))],
-                    ),
-                    state,
+                        error_details=[hard_error],
+                    )
                 )
 
             combined_observation, correction_feedback = apply_retry_guidance(agent, state, batch)
@@ -461,7 +737,18 @@ async def run_agent_loop(
                 step_start=step_start,
             )
             if verification_result is not None:
-                return _attach_activation_counters(verification_result, state)
+                _record_step_checkpoint(
+                    run_state_store,
+                    run_id,
+                    state,
+                    thought=turn.text_content,
+                    observation=verification_result.content,
+                    tool_call_count=len(turn.tool_uses),
+                    had_error=False,
+                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_duration_ms=int((time.time() - step_start) * 1000),
+                )
+                return finalize_result(verification_result)
 
             correction_enabled = agent.experiment_config.get("correction", cfg.agent.enable_correction)
             if batch.saw_nonzero_exit and not correction_enabled:
@@ -475,7 +762,18 @@ async def run_agent_loop(
                     error_type=batch.detected_error,
                     is_retry=False,
                 )
-                return _attach_activation_counters(
+                _record_step_checkpoint(
+                    run_state_store,
+                    run_id,
+                    state,
+                    thought=turn.text_content,
+                    observation=combined_observation,
+                    tool_call_count=len(turn.tool_uses),
+                    had_error=True,
+                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_duration_ms=int((time.time() - step_start) * 1000),
+                )
+                return finalize_result(
                     finalize_turn(
                         agent,
                         state,
@@ -486,26 +784,34 @@ async def run_agent_loop(
                         final_status="failed",
                         termination_reason=TERMINATION_TOOL_NONZERO_EXIT,
                         error_details=batch.failure_parts,
-                    ),
-                    state,
+                    )
                 )
 
             if state.retry_count > cfg.agent.max_retries:
-                return _attach_activation_counters(
+                retry_message = f"Error: max retries ({cfg.agent.max_retries}) exceeded for {state.last_error_type}"
+                _record_step_checkpoint(
+                    run_state_store,
+                    run_id,
+                    state,
+                    thought=turn.text_content,
+                    observation=retry_message,
+                    tool_call_count=len(turn.tool_uses),
+                    had_error=True,
+                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_duration_ms=int((time.time() - step_start) * 1000),
+                )
+                return finalize_result(
                     finalize_turn(
                         agent,
                         state,
                         user_input=user_input,
                         finalize_trajectory=finalize_trajectory,
-                        content=f"Error: max retries ({cfg.agent.max_retries}) exceeded for {state.last_error_type}",
+                        content=retry_message,
                         success=False,
                         final_status="failed",
                         termination_reason=TERMINATION_RETRY_EXHAUSTED,
-                        error_details=[
-                            f"Error: max retries ({cfg.agent.max_retries}) exceeded for {state.last_error_type}"
-                        ],
-                    ),
-                    state,
+                        error_details=[retry_message],
+                    )
                 )
 
             record_trajectory_step(
@@ -529,6 +835,17 @@ async def run_agent_loop(
                 parse_feedback=turn.parse_feedback,
                 correction_feedback=correction_feedback,
             )
+            _record_step_checkpoint(
+                run_state_store,
+                run_id,
+                state,
+                thought=turn.text_content,
+                observation=combined_observation,
+                tool_call_count=len(turn.tool_uses),
+                had_error=batch.saw_nonzero_exit or batch.saw_recoverable_tool_error,
+                step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                step_duration_ms=int((time.time() - step_start) * 1000),
+            )
 
     except Exception as exc:
         tb_summary = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).strip()
@@ -548,7 +865,18 @@ async def run_agent_loop(
             error_type=type(exc).__name__,
             is_retry=False,
         )
-        return _attach_activation_counters(
+        _record_step_checkpoint(
+            run_state_store,
+            run_id,
+            state,
+            thought="[system] unhandled exception in agent loop",
+            observation=error_summary,
+            tool_call_count=0,
+            had_error=True,
+            step_tokens=0,
+            step_duration_ms=0,
+        )
+        return finalize_result(
             finalize_turn(
                 agent,
                 state,
@@ -559,21 +887,22 @@ async def run_agent_loop(
                 final_status="failed",
                 termination_reason=TERMINATION_LOOP_EXCEPTION,
                 error_details=[error_summary],
-            ),
-            state,
+            )
         )
 
-    return _attach_activation_counters(
+    timeout_message = "Error: max steps reached"
+    if remaining_steps == 0:
+        timeout_message = "Error: max steps reached before resume could continue"
+    return finalize_result(
         finalize_turn(
             agent,
             state,
             user_input=user_input,
             finalize_trajectory=finalize_trajectory,
-            content="Error: max steps reached",
+            content=timeout_message,
             success=False,
             final_status="timeout",
             termination_reason=TERMINATION_MAX_STEPS,
-            error_details=["Error: max steps reached"],
-        ),
-        state,
+            error_details=[timeout_message],
+        )
     )
