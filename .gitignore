@@ -25,3 +25,7 @@ report/EVAL_COMPARISON_REPORT.md
 report/IMPROVEMENT_REPORT_v2.md
 report/IMPROVEMENT_REPORT_v3.md
 report/IMPROVEMENT_REPORT_v4.md
+
+# Transient benchmark task artifacts at repo root
+/invoice.py
+/test_invoice.py
