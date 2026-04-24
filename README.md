@@ -16,20 +16,24 @@ License: [MIT](./LICENSE).
 
 ## Current Status
 
-Current code version: `0.7.1`
+Current code version: `0.7.3`
 
-Current accepted baseline cycle: `0.7.1` via `report/BASELINE_0_7_1.md`
+Current accepted baseline cycle: `0.7.2` via `report/BASELINE_0_7_2.md`
 
-The accepted `0.7.1` cycle closes the `0.7.0` workstream on top of the earlier `0.6.0` runtime-contract baseline. `0.7.0` introduced patch-style editing (`patch_file`), verification-specific recovery guardrails, task-scoped ad hoc install budgets, and layered analysis reports written to `results/<experiment_id>_analysis_report.json`.
+The `0.7.3` release adds fire-and-forget EvalOps reporting via the new `coder_agent/evalops` package. Every run optionally pushes a structured `AgentRunReport` to `llm-evalops-platform` after the agent terminates. No behavioral change; disabled by default (`EVALOPS_ENDPOINT` unset = no-op). No rebaseline required.
 
-The accepted `0.7.1` closure then tightened benchmark-facing runtime semantics and SWE attribution quality: piped shell commands now surface upstream failures via `pipefail`, SWE verification overlay handling avoids agent-created regression-file conflicts, `sphinx-doc__sphinx-8273` provisioning is tighter, and layered taxonomy is stricter about `shell_exit_masking`. The accepted value of `0.7.1` is cleaner failure composition on the fixed SWE promoted lane, not a higher pass rate.
+The `0.7.2` release productized the agent into a persistent-state runtime service: run state is now persisted to SQLite, runs support `pause` / `resume` / `retry`, all tool calls are recorded in an audit trail, and the agent is accessible as an async HTTP service via `coder_agent serve`. The accepted `0.7.2` baseline documents the run-state and service-layer delivery without a benchmark re-run.
+
+The accepted `0.7.1` closure tightened benchmark-facing runtime semantics and SWE attribution quality: piped shell commands now surface upstream failures via `pipefail`, SWE verification overlay handling avoids agent-created regression-file conflicts, and layered taxonomy is stricter about `shell_exit_masking`. The accepted value of `0.7.1` is cleaner failure composition on the fixed SWE promoted lane, not a higher pass rate.
+
+The `0.7.0` release introduced patch-style editing (`patch_file`), verification-specific recovery guardrails, task-scoped ad hoc install budgets, and layered analysis reports written to `results/<experiment_id>_analysis_report.json`.
 
 Key points:
 
 - The supported runtime path is an OpenAI-compatible backend configured with `LLM_API_KEY` and optional `LLM_BASE_URL`.
 - `model.provider` remains in config for compatibility and is informational only at runtime.
 - The active day-to-day presets are `default`, `C3`, `C4`, and `C6`.
-- The current accepted closure docs are `BASELINE_0_7_1.md`, `REBASELINE_PLAYBOOK_0_7_1.md`, and `IMPROVEMENT_REPORT_v0.7.1.md`.
+- The current accepted closure docs are `BASELINE_0_7_2.md`, `REBASELINE_PLAYBOOK_0_7_1.md`, `IMPROVEMENT_REPORT_v0.7.2.md`, and `IMPROVEMENT_REPORT_v0.7.3-evalops.md`.
 - The accepted `0.7.1` SWE promoted artifacts are `swe_promoted_cmp_v071r1_C3`, `swe_promoted_cmp_v071r1_C6`, and supporting `swe_promoted_support_v071r1_C4`.
 - The accepted `0.6.0` Custom targeted compare artifacts remain `custom_v060_cmp_C3`, `custom_v060_cmp_C4`, and `custom_v060_cmp_C6`.
 - `C5` remains available for checklist experiments, but it is explicitly non-promoted.
@@ -44,6 +48,8 @@ Key points:
 
 Recommended reading:
 
+- [BASELINE_0_7_2.md](./report/BASELINE_0_7_2.md)
+- [IMPROVEMENT_REPORT_v0.7.3-evalops.md](./report/IMPROVEMENT_REPORT_v0.7.3-evalops.md)
 - [BASELINE_0_7_1.md](./report/BASELINE_0_7_1.md)
 - [REBASELINE_PLAYBOOK_0_7_1.md](./report/REBASELINE_PLAYBOOK_0_7_1.md)
 - [IMPROVEMENT_REPORT_v0.7.1.md](./report/IMPROVEMENT_REPORT_v0.7.1.md)
@@ -62,7 +68,7 @@ Recommended reading:
 
 ### Preset Guidance
 
-| Preset | Primary use | 0.7.1 cycle status |
+| Preset | Primary use | 0.7.3 cycle status |
 |--------|-------------|--------------|
 | `default` | Config-driven interactive use | Active |
 | `C3` | ReAct + correction baseline | Formal SWE promoted compare lane |
@@ -243,9 +249,10 @@ Then add the corresponding vars to `.env` and use `--llm-profile my_provider`.
 
 ## Evaluation and Re-Baselining
 
-The branch currently has two relevant accepted baseline documents:
+The branch currently has three relevant accepted baseline documents:
 
-- [BASELINE_0_7_1.md](./report/BASELINE_0_7_1.md): current accepted `0.7.1` closure baseline for SWE promoted noise-reduction and attribution cleanup
+- [BASELINE_0_7_2.md](./report/BASELINE_0_7_2.md): current accepted `0.7.2` closure baseline documenting run-state and HTTP service-layer delivery
+- [BASELINE_0_7_1.md](./report/BASELINE_0_7_1.md): accepted `0.7.1` closure baseline for SWE promoted noise-reduction and attribution cleanup
 - [BASELINE_0_6_0.md](./report/BASELINE_0_6_0.md): previous accepted runtime-contract baseline and the last full Custom/SWE closure before the `0.7.x` diagnostic cycle
 - [REBASELINE_PLAYBOOK_0_7_1.md](./report/REBASELINE_PLAYBOOK_0_7_1.md): completed reproduction contract for the accepted `0.7.1` closure
 
@@ -286,6 +293,7 @@ coder_agent/
   cli/          command registry, REPL, and command modules
   core/         agent facade, runtime loop, context, session, LLM client
   eval/         benchmarks, runner facade, verification, analysis modules
+  evalops/      EvalOps integration — AgentRunReport schema and fire-and-forget client
   memory/       memory manager and trajectory store
   tools/        file, shell, and search tools
 tests/          automated tests
