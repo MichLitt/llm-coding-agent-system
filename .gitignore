@@ -3,8 +3,6 @@
 .pytest_cache/
 .claude/
 .claire/
-CLAUDE.md
-AGENTS.md
 workspace/
 /memory/
 trajectories/
