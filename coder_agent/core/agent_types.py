@@ -21,6 +21,7 @@ class ModelConfig:
     model: str = cfg.model.name
     max_tokens: int = cfg.model.max_tokens
     temperature: float = cfg.model.temperature
+    seed: int | None = cfg.model.seed
     context_window_tokens: int = cfg.context.context_window_tokens
 
 

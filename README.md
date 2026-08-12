@@ -195,6 +195,18 @@ uv run python -m coder_agent eval --benchmark custom --preset C4 --config-label 
   --experiment-config '{"memory_lookup_mode":"similarity","keep_recent_turns":4}'
 ```
 
+For a controlled multi-seed evaluation on an OpenAI-compatible profile, pass a
+per-run `model_seed`; the value is recorded in the manifest and forwarded to
+the completion request:
+
+```bash
+uv run python -m coder_agent eval --benchmark custom --preset C3 --config-label seeded_demo \
+  --llm-profile glm_5 --experiment-config '{"model_seed":101}'
+```
+
+Anthropic-compatible profiles preserve `model_seed` as experiment metadata but
+do not send it because that transport has no portable seed parameter.
+
 Labeled eval runs now write run-scoped metadata into the manifest, including `run_id`, `workspace_path`, `workspace_mode`, and the requested `task_ids`. Resume only works when the benchmark, preset/config snapshots, LLM profile, and task set still match the original run.
 
 SWE-bench Lite smoke example:

@@ -345,7 +345,7 @@ class MessageHistory:
                 "Be concise. Each list item <= 1 sentence."
             ),
             tools=[],
-            **{k: v for k, v in params.items() if k in ("model", "max_tokens", "temperature")},
+            **{k: v for k, v in params.items() if k in ("model", "max_tokens", "temperature", "seed")},
         )
         if hasattr(summary_response, "content") and summary_response.content:
             block = summary_response.content[0]

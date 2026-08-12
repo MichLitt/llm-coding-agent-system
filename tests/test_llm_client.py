@@ -136,7 +136,10 @@ def test_llm_client_builds_openai_backend_for_openai_transport():
 
 @pytest.mark.asyncio
 async def test_openai_backend_chat_returns_parse_errors_for_invalid_tool_arguments():
+    captured = {}
+
     async def fake_create(**kwargs):
+        captured.update(kwargs)
         chunks = [
             SimpleNamespace(
                 choices=[
@@ -183,11 +186,13 @@ async def test_openai_backend_chat_returns_parse_errors_for_invalid_tool_argumen
         model="test-model",
         max_tokens=128,
         temperature=0.0,
+        seed=303,
     )
 
     assert response["tool_uses"] == []
     assert response["parse_errors"]
     assert "malformed tool arguments" in response["parse_errors"][0]
+    assert captured["seed"] == 303
 
 
 # ---------------------------------------------------------------------------
