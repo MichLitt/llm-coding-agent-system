@@ -138,6 +138,15 @@ uv run python -m coder_agent run "Use the indexed release manual to check the ga
 reporting remains fire-and-forget and does not make the Agent run depend on the
 platform.
 
+For a controlled evaluation, set `rag_index_id` in the run-scoped experiment
+configuration. It locks retrieval to that index even if the model supplies a
+different index name:
+
+```bash
+uv run python -m coder_agent eval --benchmark custom --preset C3 --config-label locked_index \
+  --experiment-config '{"knowledge_retrieval":true,"rag_index_id":"g3-agent-rag-ablation-v1"}'
+```
+
 From the parent workspace, the complete local RAG → Agent → EvalOps closure can
 be verified without an LLM key:
 
