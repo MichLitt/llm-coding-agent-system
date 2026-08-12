@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 
 from coder_agent.cli.factory import make_agent, make_run_state_store, resolve_agent_config
 from coder_agent.config import cfg
@@ -20,6 +20,7 @@ from coder_agent.service.schemas import (
     RunListResponse,
     RunStepsResponse,
 )
+from coder_agent.service.auth import require_api_token
 
 
 class RuntimeService:
@@ -149,30 +150,32 @@ def create_app(run_state_store: RunStateStore | None = None) -> FastAPI:
     def health() -> HealthResponse:
         return HealthResponse(status="ok")
 
-    @app.post("/runs", response_model=RunCreateResponse)
+    protected = [Depends(require_api_token)]
+
+    @app.post("/runs", response_model=RunCreateResponse, dependencies=protected)
     def create_run(request: RunCreateRequest) -> RunCreateResponse:
         run_id = service.submit_run(request)
         return RunCreateResponse(run_id=run_id, status="pending")
 
-    @app.get("/runs", response_model=RunListResponse)
+    @app.get("/runs", response_model=RunListResponse, dependencies=protected)
     def list_runs(limit: int = 50) -> RunListResponse:
         return RunListResponse(runs=service.list_runs(limit=limit))
 
-    @app.get("/runs/{run_id}", response_model=RunDetailResponse)
+    @app.get("/runs/{run_id}", response_model=RunDetailResponse, dependencies=protected)
     def get_run(run_id: str) -> RunDetailResponse:
         run = service.get_run(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
         return RunDetailResponse(run=run)
 
-    @app.post("/runs/{run_id}/cancel", response_model=RunCancelResponse)
+    @app.post("/runs/{run_id}/cancel", response_model=RunCancelResponse, dependencies=protected)
     def cancel_run(run_id: str) -> RunCancelResponse:
         status = service.cancel_run(run_id)
         if status is None:
             raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
         return RunCancelResponse(run_id=run_id, status=status)
 
-    @app.get("/runs/{run_id}/steps", response_model=RunStepsResponse)
+    @app.get("/runs/{run_id}/steps", response_model=RunStepsResponse, dependencies=protected)
     def get_steps(run_id: str) -> RunStepsResponse:
         run = service.get_run(run_id)
         if run is None:

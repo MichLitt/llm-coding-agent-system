@@ -27,9 +27,11 @@ class KnowledgeRetrievalTool(Tool):
         self,
         *,
         base_url: str | None = None,
+        api_token: str | None = None,
         timeout_seconds: float = 10.0,
     ) -> None:
         self._base_url = base_url.rstrip("/") if base_url else None
+        self._api_token = api_token
         self._timeout_seconds = timeout_seconds
         super().__init__(
             name="knowledge_retrieval",
@@ -97,6 +99,9 @@ class KnowledgeRetrievalTool(Tool):
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
+            token = self._api_token if self._api_token is not None else os.environ.get("RAG_API_TOKEN", "")
+            if token:
+                req.add_header("Authorization", f"Bearer {token}")
             raw_response = await asyncio.to_thread(
                 _read_response,
                 req,

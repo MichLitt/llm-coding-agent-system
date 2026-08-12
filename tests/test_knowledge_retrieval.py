@@ -33,6 +33,7 @@ async def test_retrieval_formats_source_pages_and_clamps_top_k(monkeypatch):
         captured["url"] = req.full_url
         captured["body"] = json.loads(req.data)
         captured["timeout"] = timeout
+        captured["authorization"] = req.get_header("Authorization")
         return _Response(
             {
                 "results": [
@@ -54,7 +55,7 @@ async def test_retrieval_formats_source_pages_and_clamps_top_k(monkeypatch):
         )
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    tool = KnowledgeRetrievalTool(base_url="http://rag.local/", timeout_seconds=2.5)
+    tool = KnowledgeRetrievalTool(base_url="http://rag.local/", api_token="rag-token", timeout_seconds=2.5)
 
     result = await tool.execute(query=" release gate ", index_id="docs", top_k=99)
 
@@ -62,6 +63,7 @@ async def test_retrieval_formats_source_pages_and_clamps_top_k(monkeypatch):
         "url": "http://rag.local/v1/retrieve",
         "body": {"query": "release gate", "index_id": "docs", "top_k": 20},
         "timeout": 2.5,
+        "authorization": "Bearer rag-token",
     }
     assert "manual.pdf [p.2–3]" in result
     assert "release process" in result

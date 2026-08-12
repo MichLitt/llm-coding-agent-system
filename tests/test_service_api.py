@@ -57,6 +57,15 @@ def test_service_api_submit_returns_run_id(tmp_path, monkeypatch):
     assert response.json() == {"run_id": "run-post-1", "status": "pending"}
 
 
+def test_service_token_protects_runs_but_not_health(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_API_TOKEN", "test-token")
+    client = TestClient(create_app(run_state_store=RunStateStore(tmp_path / "run_state.db")))
+    assert client.get("/health").status_code == 200
+    assert client.get("/runs").status_code == 401
+    assert client.get("/runs", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    assert client.get("/runs", headers={"Authorization": "Bearer test-token"}).status_code == 200
+
+
 def test_service_api_cancel_endpoint(tmp_path, monkeypatch):
     store = RunStateStore(tmp_path / "run_state.db")
     app = create_app(run_state_store=store)
