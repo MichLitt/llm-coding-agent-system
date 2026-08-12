@@ -76,7 +76,10 @@ def make_agent(
         memory = MemoryManager(db_path)
 
     agent = Agent(
-        tools=build_tools(resolved_workspace),
+        tools=build_tools(
+            resolved_workspace,
+            enable_knowledge_retrieval=resolved_agent_config.get("knowledge_retrieval"),
+        ),
         client=client,
         model_config=model_cfg,
         memory=memory,

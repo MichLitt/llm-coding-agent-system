@@ -9,6 +9,14 @@ Status: accepted closure playbook for the `0.7.1` cycle.
 - `sphinx-doc__sphinx-8273` task-local setup tightening
 - layered taxonomy tightening for `shell_exit_masking`
 
+## Supersession Note
+
+The G3 controlled-comparison work adds an explicit per-run
+`knowledge_retrieval` tool policy. Because it changes the Agent tool set, this
+0.7.1 benchmark baseline must not be used to make claims about the new G3
+conditions. The G3 protocol freezes its own 20-task / 3-seed inputs and will
+produce separate versioned evidence before any quality claim is made.
+
 ## Required Local Gates
 
 ```bash
