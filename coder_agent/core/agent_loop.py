@@ -232,6 +232,49 @@ def _restore_loop_state(resume_state: dict[str, Any] | None) -> LoopState:
     return state
 
 
+def _try_report_to_evalops(
+    run_id: str,
+    result: TurnResult,
+    state: LoopState,
+    agent: Any,
+) -> None:
+    try:
+        from coder_agent.evalops.client import EvalOpsClient
+        from coder_agent.evalops.schema import AgentRunReport
+
+        meta = state.task_metadata
+        benchmark_name: str | None = meta.get("benchmark_name") or None
+        raw_task_ids = meta.get("task_ids")
+        task_ids: list[str] = list(raw_task_ids) if raw_task_ids else []
+        run_type = "eval" if benchmark_name else "service"
+
+        total_tool_calls = len(state.all_tool_calls)
+        tool_success_rate = (
+            None if total_tool_calls == 0 else state.successful_tool_calls / total_tool_calls
+        )
+        wall_ms = int((time.time() - state.start_time) * 1000)
+
+        report = AgentRunReport(
+            run_id=run_id,
+            run_type=run_type,
+            status=result.final_status,
+            total_steps=state.steps,
+            total_tool_calls=total_tool_calls,
+            tool_success_rate=tool_success_rate,
+            total_tokens=agent.history.total_tokens,
+            wall_duration_ms=wall_ms,
+            termination_reason=result.termination_reason,
+            preset=getattr(agent, "preset", None),
+            llm_profile=getattr(agent, "llm_profile_name", None),
+            benchmark_name=benchmark_name,
+            task_ids=task_ids,
+        )
+        EvalOpsClient.from_env().submit(report)
+    except Exception as exc:
+        import logging as _log
+        _log.getLogger(__name__).warning("EvalOps reporting failed (ignored): %s", exc)
+
+
 def _build_run_metrics(agent: Any, state: LoopState) -> RunMetrics:
     total_tool_calls = len(state.all_tool_calls)
     success_rate = None if total_tool_calls == 0 else state.successful_tool_calls / total_tool_calls
@@ -475,6 +518,8 @@ async def run_agent_loop(
                 _build_run_metrics(agent, state),
             )
             result.extra["run_id"] = run_id
+        if run_id:
+            _try_report_to_evalops(run_id, result, state, agent)
         return _attach_activation_counters(result, state)
 
     _configure_task_tool_state(agent, state)

@@ -141,7 +141,7 @@ class RuntimeService:
 
 
 def create_app(run_state_store: RunStateStore | None = None) -> FastAPI:
-    app = FastAPI(title="Coder Agent Runtime API", version="0.7.2")
+    app = FastAPI(title="Coder Agent Runtime API", version="0.7.4")
     service = RuntimeService(run_state_store=run_state_store)
     app.state.runtime_service = service
 
