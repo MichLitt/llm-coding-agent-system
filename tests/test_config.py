@@ -3,7 +3,7 @@
 import pytest
 
 from coder_agent.config import Config, validate_config, AgentConfig, ToolsConfig
-from coder_agent.cli.factory import make_agent
+from coder_agent.cli.factory import make_agent, resolve_knowledge_retrieval_policy
 
 
 def _make_config(max_steps=15, max_retries=3, terminal_timeout=30) -> Config:
@@ -72,3 +72,34 @@ def test_make_agent_skips_run_state_store_when_disabled(monkeypatch, tmp_path):
         assert agent.run_state_store is None
     finally:
         agent.close()
+
+
+def test_run_scoped_retrieval_policy_overrides_preset(monkeypatch, tmp_path):
+    from coder_agent.cli import factory as factory_module
+
+    captured = {}
+    monkeypatch.setattr(factory_module.cfg.agent, "enable_run_state", False)
+    monkeypatch.setattr(
+        factory_module,
+        "build_tools",
+        lambda workspace, *, enable_knowledge_retrieval=None: captured.setdefault(
+            "knowledge_retrieval", enable_knowledge_retrieval
+        ) or [],
+    )
+
+    agent = make_agent(
+        {"knowledge_retrieval": True},
+        experiment_config={"knowledge_retrieval": False},
+        no_memory=True,
+        workspace=tmp_path,
+    )
+    try:
+        assert captured["knowledge_retrieval"] is False
+    finally:
+        agent.close()
+
+
+@pytest.mark.parametrize("value", ["false", 0, 1])
+def test_retrieval_policy_rejects_non_boolean_values(value):
+    with pytest.raises(ValueError, match="knowledge_retrieval must be a boolean"):
+        resolve_knowledge_retrieval_policy({}, {"knowledge_retrieval": value})
