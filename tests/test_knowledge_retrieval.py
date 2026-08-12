@@ -119,6 +119,25 @@ async def test_retrieval_handles_empty_results(monkeypatch):
     assert result == "No results found for query: 'missing'"
 
 
+@pytest.mark.asyncio
+async def test_fixed_index_overrides_model_supplied_index(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(req, timeout):
+        captured["body"] = json.loads(req.data)
+        return _Response({"results": [], "latency_ms": 1})
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    tool = KnowledgeRetrievalTool(
+        base_url="http://rag.local",
+        fixed_index_id="g3-agent-rag-ablation-v1",
+    )
+    result = await tool.execute(query="docs", index_id="untrusted-other-index")
+
+    assert captured["body"]["index_id"] == "g3-agent-rag-ablation-v1"
+    assert result == "No results found for query: 'docs'"
+
+
 def test_tool_registry_is_opt_in(monkeypatch, tmp_path):
     monkeypatch.delenv("RAG_API_URL", raising=False)
     assert "knowledge_retrieval" not in {tool.name for tool in build_tools(tmp_path)}

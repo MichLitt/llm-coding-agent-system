@@ -5,6 +5,7 @@ import pytest
 from coder_agent.config import Config, validate_config, AgentConfig, ToolsConfig
 from coder_agent.cli.factory import (
     make_agent,
+    resolve_fixed_knowledge_index_id,
     resolve_knowledge_retrieval_policy,
     resolve_model_seed,
 )
@@ -86,7 +87,7 @@ def test_run_scoped_retrieval_policy_overrides_preset(monkeypatch, tmp_path):
     monkeypatch.setattr(
         factory_module,
         "build_tools",
-        lambda workspace, *, enable_knowledge_retrieval=None: captured.setdefault(
+        lambda workspace, *, enable_knowledge_retrieval=None, fixed_knowledge_index_id=None: captured.setdefault(
             "knowledge_retrieval", enable_knowledge_retrieval
         ) or [],
     )
@@ -128,3 +129,34 @@ def test_run_scoped_model_seed_is_applied_to_model_config(monkeypatch, tmp_path)
 def test_model_seed_rejects_invalid_values(value):
     with pytest.raises(ValueError, match="model_seed must be an integer or null"):
         resolve_model_seed({"model_seed": value})
+
+
+def test_fixed_knowledge_index_rejects_invalid_values():
+    with pytest.raises(ValueError, match="rag_index_id must be a non-empty string"):
+        resolve_fixed_knowledge_index_id({"rag_index_id": "  "})
+
+
+def test_run_scoped_rag_index_is_forwarded_to_tool_registry(monkeypatch, tmp_path):
+    from coder_agent.cli import factory as factory_module
+
+    captured = {}
+    monkeypatch.setattr(factory_module.cfg.agent, "enable_run_state", False)
+
+    def fake_build_tools(workspace, *, enable_knowledge_retrieval=None, fixed_knowledge_index_id=None):
+        captured["enabled"] = enable_knowledge_retrieval
+        captured["index_id"] = fixed_knowledge_index_id
+        return []
+
+    monkeypatch.setattr(factory_module, "build_tools", fake_build_tools)
+    agent = make_agent(
+        experiment_config={
+            "knowledge_retrieval": True,
+            "rag_index_id": "g3-agent-rag-ablation-v1",
+        },
+        no_memory=True,
+        workspace=tmp_path,
+    )
+    try:
+        assert captured == {"enabled": True, "index_id": "g3-agent-rag-ablation-v1"}
+    finally:
+        agent.close()

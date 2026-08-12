@@ -62,6 +62,16 @@ def resolve_model_seed(runtime_config: dict) -> int | None:
     raise ValueError("model_seed must be an integer or null when specified")
 
 
+def resolve_fixed_knowledge_index_id(runtime_config: dict) -> str | None:
+    """Return an optional run-scoped RAG index lock for controlled evaluation."""
+    value = runtime_config.get("rag_index_id")
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    raise ValueError("rag_index_id must be a non-empty string when specified")
+
+
 def make_agent(
     agent_config: dict | None = None,
     *,
@@ -92,6 +102,7 @@ def make_agent(
         resolved_experiment_config,
     )
     model_seed = resolve_model_seed(resolved_experiment_config)
+    fixed_knowledge_index_id = resolve_fixed_knowledge_index_id(resolved_experiment_config)
 
     client = LLMClient(profile=resolved_profile)
     model_cfg = ModelConfig(
@@ -115,6 +126,7 @@ def make_agent(
         tools=build_tools(
             resolved_workspace,
             enable_knowledge_retrieval=knowledge_retrieval_policy,
+            fixed_knowledge_index_id=fixed_knowledge_index_id,
         ),
         client=client,
         model_config=model_cfg,

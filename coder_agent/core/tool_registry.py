@@ -8,6 +8,7 @@ def build_tools(
     workspace: Path,
     *,
     enable_knowledge_retrieval: bool | None = None,
+    fixed_knowledge_index_id: str | None = None,
 ) -> list[Tool]:
     from coder_agent.tools.file_tools import ListDirTool, PatchFileTool, ReadFileTool, WriteFileTool
     from coder_agent.tools.search_tool import SearchCodeTool
@@ -33,6 +34,6 @@ def build_tools(
     if retrieval_enabled:
         from coder_agent.tools.knowledge_retrieval import KnowledgeRetrievalTool
 
-        tools.append(KnowledgeRetrievalTool())
+        tools.append(KnowledgeRetrievalTool(fixed_index_id=fixed_knowledge_index_id))
 
     return tools

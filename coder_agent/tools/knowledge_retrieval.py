@@ -28,11 +28,24 @@ class KnowledgeRetrievalTool(Tool):
         *,
         base_url: str | None = None,
         api_token: str | None = None,
+        fixed_index_id: str | None = None,
         timeout_seconds: float = 10.0,
     ) -> None:
         self._base_url = base_url.rstrip("/") if base_url else None
         self._api_token = api_token
+        self._fixed_index_id = fixed_index_id.strip() if fixed_index_id else None
         self._timeout_seconds = timeout_seconds
+        index_schema: dict[str, Any] = {
+            "type": "string",
+            "description": "Name of the knowledge index to search.",
+            "default": "default",
+        }
+        if self._fixed_index_id:
+            index_schema = {
+                "type": "string",
+                "const": self._fixed_index_id,
+                "description": "Fixed index for this controlled evaluation run.",
+            }
         super().__init__(
             name="knowledge_retrieval",
             description=(
@@ -49,9 +62,7 @@ class KnowledgeRetrievalTool(Tool):
                         "description": "Natural-language search query.",
                     },
                     "index_id": {
-                        "type": "string",
-                        "description": "Name of the knowledge index to search.",
-                        "default": "default",
+                        **index_schema,
                     },
                     "top_k": {
                         "type": "integer",
@@ -84,12 +95,14 @@ class KnowledgeRetrievalTool(Tool):
                 "Set RAG_API_URL=http://<host>:<port> to enable knowledge retrieval."
             )
 
+        resolved_index_id = self._fixed_index_id or index_id.strip()
+
         try:
             requested_top_k = max(1, min(top_k, 20))
             payload = json.dumps(
                 {
                     "query": query.strip(),
-                    "index_id": index_id.strip(),
+                    "index_id": resolved_index_id,
                     "top_k": requested_top_k,
                 }
             ).encode()
@@ -127,7 +140,7 @@ class KnowledgeRetrievalTool(Tool):
 
         latency = data.get("latency_ms", "?")
         lines: list[str] = [
-            f"Retrieved {len(results)} result(s) from index '{index_id}' "
+            f"Retrieved {len(results)} result(s) from index '{resolved_index_id}' "
             f"(latency: {latency}ms):\n"
         ]
         for i, r in enumerate(results, 1):
