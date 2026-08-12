@@ -170,6 +170,11 @@ Start the local runtime API service:
 uv run python -m coder_agent serve --host 127.0.0.1 --port 8000
 ```
 
+Set `AGENT_API_TOKEN` to require `Authorization: Bearer <token>` on runtime
+`/runs` endpoints (while `/health` stays public). Set `RAG_API_TOKEN` when the
+configured RAG service requires a token; the knowledge retrieval tool forwards
+it without including it in run logs or tool output.
+
 ### 4. Run one benchmark task
 
 ```bash
