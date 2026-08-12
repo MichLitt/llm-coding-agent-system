@@ -3,7 +3,11 @@
 import pytest
 
 from coder_agent.config import Config, validate_config, AgentConfig, ToolsConfig
-from coder_agent.cli.factory import make_agent, resolve_knowledge_retrieval_policy
+from coder_agent.cli.factory import (
+    make_agent,
+    resolve_knowledge_retrieval_policy,
+    resolve_model_seed,
+)
 
 
 def _make_config(max_steps=15, max_retries=3, terminal_timeout=30) -> Config:
@@ -103,3 +107,24 @@ def test_run_scoped_retrieval_policy_overrides_preset(monkeypatch, tmp_path):
 def test_retrieval_policy_rejects_non_boolean_values(value):
     with pytest.raises(ValueError, match="knowledge_retrieval must be a boolean"):
         resolve_knowledge_retrieval_policy({}, {"knowledge_retrieval": value})
+
+
+def test_run_scoped_model_seed_is_applied_to_model_config(monkeypatch, tmp_path):
+    from coder_agent.cli import factory as factory_module
+
+    monkeypatch.setattr(factory_module.cfg.agent, "enable_run_state", False)
+    agent = make_agent(
+        experiment_config={"model_seed": 303},
+        no_memory=True,
+        workspace=tmp_path,
+    )
+    try:
+        assert agent._params()["seed"] == 303
+    finally:
+        agent.close()
+
+
+@pytest.mark.parametrize("value", ["303", True, 1.2])
+def test_model_seed_rejects_invalid_values(value):
+    with pytest.raises(ValueError, match="model_seed must be an integer or null"):
+        resolve_model_seed({"model_seed": value})

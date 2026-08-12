@@ -132,6 +132,7 @@ class _OpenAIBackend:
         model: str,
         max_tokens: int,
         temperature: float,
+        seed: int | None = None,
         on_token: Any | None = None,
     ) -> dict[str, Any]:
         full_messages = [{"role": "system", "content": system}] + messages
@@ -160,14 +161,17 @@ class _OpenAIBackend:
                 delay = _RETRY_DELAYS[attempt - 1] + random.uniform(0.0, 0.5)
                 await asyncio.sleep(delay)
             try:
-                stream = await client.chat.completions.create(
-                    model=model,
-                    messages=full_messages,
-                    tools=openai_tools,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    stream=True,
-                )
+                request: dict[str, Any] = {
+                    "model": model,
+                    "messages": full_messages,
+                    "tools": openai_tools,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "stream": True,
+                }
+                if seed is not None:
+                    request["seed"] = seed
+                stream = await client.chat.completions.create(**request)
                 break
             except (openai.APIConnectionError, openai.APITimeoutError):
                 if attempt == _MAX_RETRIES:
@@ -361,9 +365,13 @@ class _AnthropicBackend:
         model: str,
         max_tokens: int,
         temperature: float,
+        seed: int | None = None,
         on_token: Any | None = None,
     ) -> dict[str, Any]:
         normalized = _normalize_messages_for_anthropic(messages)
+        # Anthropic-compatible transports do not expose a portable seed field.
+        # Retain the argument for a uniform client contract and manifest record.
+        del seed
         # Tools are already in Anthropic format (name/description/input_schema)
         anthropic_tools = tools if tools else anthropic.NOT_GIVEN
 
@@ -468,6 +476,7 @@ class LLMClient:
         model: str,
         max_tokens: int,
         temperature: float,
+        seed: int | None = None,
         on_token: Any | None = None,
     ) -> dict[str, Any]:
         return await self._backend.chat(
@@ -477,6 +486,7 @@ class LLMClient:
             model=model,
             max_tokens=max_tokens,
             temperature=temperature,
+            seed=seed,
             on_token=on_token,
         )
 

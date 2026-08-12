@@ -52,6 +52,16 @@ def resolve_knowledge_retrieval_policy(
     raise ValueError("knowledge_retrieval must be a boolean when specified")
 
 
+def resolve_model_seed(runtime_config: dict) -> int | None:
+    """Return the per-run model seed used by seed-capable transports."""
+    value = runtime_config.get("model_seed", cfg.model.seed)
+    if value is None:
+        return None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    raise ValueError("model_seed must be an integer or null when specified")
+
+
 def make_agent(
     agent_config: dict | None = None,
     *,
@@ -75,20 +85,23 @@ def make_agent(
         # --model overrides only the model name within this agent's profile
         resolved_profile = replace(resolved_profile, model=model)
 
-    client = LLMClient(profile=resolved_profile)
-    model_cfg = ModelConfig(
-        model=resolved_profile.model,
-        max_tokens=cfg.model.max_tokens,
-        temperature=cfg.model.temperature,
-        context_window_tokens=cfg.context.context_window_tokens,
-    )
-
     resolved_agent_config = dict(agent_config or {})
     resolved_experiment_config = dict(experiment_config or {})
     knowledge_retrieval_policy = resolve_knowledge_retrieval_policy(
         resolved_agent_config,
         resolved_experiment_config,
     )
+    model_seed = resolve_model_seed(resolved_experiment_config)
+
+    client = LLMClient(profile=resolved_profile)
+    model_cfg = ModelConfig(
+        model=resolved_profile.model,
+        max_tokens=cfg.model.max_tokens,
+        temperature=cfg.model.temperature,
+        seed=model_seed,
+        context_window_tokens=cfg.context.context_window_tokens,
+    )
+
     resolved_workspace = Path(workspace or cfg.agent.workspace).resolve()
     memory_enabled = resolved_agent_config.get("memory", cfg.agent.enable_memory)
     memory = None
