@@ -125,3 +125,9 @@ def test_tool_registry_is_opt_in(monkeypatch, tmp_path):
 
     monkeypatch.setenv("RAG_API_URL", "http://rag.local")
     assert "knowledge_retrieval" in {tool.name for tool in build_tools(tmp_path)}
+    assert "knowledge_retrieval" not in {
+        tool.name for tool in build_tools(tmp_path, enable_knowledge_retrieval=False)
+    }
+    assert "knowledge_retrieval" in {
+        tool.name for tool in build_tools(tmp_path, enable_knowledge_retrieval=True)
+    }
