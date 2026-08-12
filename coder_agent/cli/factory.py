@@ -33,6 +33,25 @@ def invalid_preset_labels(labels: list[str]) -> list[str]:
     return [label for label in labels if label not in CONFIG_PRESETS]
 
 
+def resolve_knowledge_retrieval_policy(
+    agent_config: dict,
+    runtime_config: dict,
+) -> bool | None:
+    """Resolve the explicit retrieval policy, preferring a run-scoped override.
+
+    A run-scoped setting is deliberately separate from a preset: it lets a
+    controlled evaluation hold the service environment constant while varying
+    only whether the Agent may register the retrieval tool.
+    """
+    value = runtime_config.get(
+        "knowledge_retrieval",
+        agent_config.get("knowledge_retrieval"),
+    )
+    if value is None or isinstance(value, bool):
+        return value
+    raise ValueError("knowledge_retrieval must be a boolean when specified")
+
+
 def make_agent(
     agent_config: dict | None = None,
     *,
@@ -66,6 +85,10 @@ def make_agent(
 
     resolved_agent_config = dict(agent_config or {})
     resolved_experiment_config = dict(experiment_config or {})
+    knowledge_retrieval_policy = resolve_knowledge_retrieval_policy(
+        resolved_agent_config,
+        resolved_experiment_config,
+    )
     resolved_workspace = Path(workspace or cfg.agent.workspace).resolve()
     memory_enabled = resolved_agent_config.get("memory", cfg.agent.enable_memory)
     memory = None
@@ -78,7 +101,7 @@ def make_agent(
     agent = Agent(
         tools=build_tools(
             resolved_workspace,
-            enable_knowledge_retrieval=resolved_agent_config.get("knowledge_retrieval"),
+            enable_knowledge_retrieval=knowledge_retrieval_policy,
         ),
         client=client,
         model_config=model_cfg,
