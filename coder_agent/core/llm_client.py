@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import os
 import random
 from collections import defaultdict
 from json import JSONDecodeError
@@ -111,11 +112,18 @@ class _OpenAIBackend:
     def __init__(self, api_key: str, base_url: str) -> None:
         self._api_key = api_key
         self._base_url = base_url
+        self._request_timeout_seconds = float(
+            os.environ.get("CODER_LLM_REQUEST_TIMEOUT_SECONDS", "180")
+        )
         self._client: AsyncOpenAI | None = None
         self._client_loop_id: int | None = None
 
     def _build_client(self) -> AsyncOpenAI:
-        return AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
+        return AsyncOpenAI(
+            api_key=self._api_key,
+            base_url=self._base_url,
+            timeout=self._request_timeout_seconds,
+        )
 
     def _client_for_current_loop(self) -> AsyncOpenAI:
         loop_id = id(asyncio.get_running_loop())
@@ -177,23 +185,25 @@ class _OpenAIBackend:
                 if attempt == _MAX_RETRIES:
                     raise
 
-        async for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta is None:
-                continue
-            if delta.content:
-                text_chunks.append(delta.content)
-                if on_token:
-                    await on_token(delta.content)
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    idx = tc.index
-                    if tc.id:
-                        tc_accum[idx]["id"] = tc.id
-                    if tc.function.name:
-                        tc_accum[idx]["name"] = tc.function.name
-                    if tc.function.arguments:
-                        tc_accum[idx]["arguments"] += tc.function.arguments
+        request_timeout = getattr(self, "_request_timeout_seconds", 180.0)
+        async with asyncio.timeout(request_timeout):
+            async for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta is None:
+                    continue
+                if delta.content:
+                    text_chunks.append(delta.content)
+                    if on_token:
+                        await on_token(delta.content)
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if tc.id:
+                            tc_accum[idx]["id"] = tc.id
+                        if tc.function.name:
+                            tc_accum[idx]["name"] = tc.function.name
+                        if tc.function.arguments:
+                            tc_accum[idx]["arguments"] += tc.function.arguments
 
         tool_uses: list[dict[str, Any]] = []
         parse_errors: list[str] = []

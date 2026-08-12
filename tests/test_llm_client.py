@@ -195,6 +195,31 @@ async def test_openai_backend_chat_returns_parse_errors_for_invalid_tool_argumen
     assert captured["seed"] == 303
 
 
+@pytest.mark.asyncio
+async def test_openai_backend_chat_bounds_stalled_stream():
+    class NeverEndingStream:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await asyncio.Event().wait()
+
+    async def fake_create(**_kwargs):
+        return NeverEndingStream()
+
+    backend = _OpenAIBackend.__new__(_OpenAIBackend)
+    backend._client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
+    )
+    backend._client_loop_id = id(asyncio.get_running_loop())
+    backend._request_timeout_seconds = 0.01
+
+    with pytest.raises(TimeoutError):
+        await backend.chat(
+            messages=[], system="system", tools=[], model="test-model", max_tokens=128, temperature=0.0
+        )
+
+
 # ---------------------------------------------------------------------------
 # _AnthropicBackend — parses text and tool_use blocks from final message
 # ---------------------------------------------------------------------------
