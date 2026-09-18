@@ -18,8 +18,14 @@ class AgentSession:
         self.agent = agent
         self.turns = 0
 
-    def send(self, user_text: str) -> TurnResult:
-        result = self.agent.run(user_text)
+    def send(self, user_text: str, **run_options: Any) -> TurnResult:
+        """Send one external user turn without resetting the underlying Agent.
+
+        Optional arguments are forwarded to ``Agent.run`` for controlled
+        evaluators (for example ``max_steps`` and a verification hook).  The
+        existing one-argument interactive path is unchanged.
+        """
+        result = self.agent.run(user_text, **run_options)
         self.turns += 1
         return result
 

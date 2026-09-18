@@ -199,6 +199,21 @@ def runs_show(run_id: str) -> None:
         store.close()
 
 
+@cli.command(name="audit-complex")
+@click.option("--task-dir", type=click.Path(path_type=Path), default=None, help="ComplexCodeBench directory (default: built-in)")
+@click.option("--repeats", type=click.IntRange(min=1), default=3, show_default=True)
+def audit_complex(task_dir: Path | None, repeats: int) -> None:
+    """Verify every ComplexCodeBench fixture from clean buggy and gold states."""
+    from coder_agent.eval.benchmarks.complex_code.loader import load_complex_code_tasks
+    from coder_agent.eval.benchmarks.complex_code.replay import audit_clean_replays
+
+    root = task_dir or (Path(__file__).resolve().parents[1] / "eval/benchmarks/complex_code")
+    tasks = load_complex_code_tasks(root / "tasks.yaml")
+    workspace = cfg.eval.output_dir / "complex_replay_audit"
+    results = audit_clean_replays(tasks, root, workspace, repeats=repeats)
+    click.echo(f"ComplexCodeBench replay audit passed: tasks={len(results)} repeats={repeats}")
+
+
 cli.add_command(chat)
 cli.add_command(eval_command)
 cli.add_command(memory_command)

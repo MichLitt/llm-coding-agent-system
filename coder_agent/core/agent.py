@@ -37,6 +37,7 @@ from coder_agent.memory.run_state import RunStateStore, current_git_commit
 from coder_agent.memory.trajectory import TrajectoryStore
 from coder_agent.tools.base import Tool
 from coder_agent.tools.execute import execute_tools
+from coder_agent.tools.mcp import MCPServerConfig, MCPStdioClient, discover_mcp_tools
 
 
 class Agent:
@@ -59,10 +60,14 @@ class Agent:
         llm_profile_name: str | None = None,
         preset_name: str | None = None,
         owns_run_state_store: bool = False,
+        mcp_servers: tuple[MCPServerConfig, ...] = (),
     ):
         self._model_cfg = model_config or ModelConfig()
         self.tools = tools
         self.tool_dict = {tool.name: tool for tool in tools}
+        self._base_tools = list(tools)
+        self._mcp_servers = mcp_servers
+        self._mcp_clients: list[MCPStdioClient] = []
         self.experiment_id = experiment_id
         self.experiment_config = experiment_config or {}
         self._experiment_config = dict(runtime_config or {})
@@ -137,6 +142,23 @@ class Agent:
         if self._owns_run_state_store and self.run_state_store is not None and hasattr(self.run_state_store, "close"):
             self.run_state_store.close()
         self._closed = True
+
+    async def _initialize_mcp_tools(self) -> None:
+        if not self._mcp_servers:
+            return
+        tools, clients = await discover_mcp_tools(
+            self._mcp_servers,
+            existing_names={tool.name for tool in self._base_tools},
+        )
+        self._mcp_clients = clients
+        self.tools = [*self._base_tools, *tools]
+        self.tool_dict = {tool.name: tool for tool in self.tools}
+
+    async def _close_mcp_tools(self) -> None:
+        clients, self._mcp_clients = self._mcp_clients, []
+        self.tools = list(self._base_tools)
+        self.tool_dict = {tool.name: tool for tool in self.tools}
+        await asyncio.gather(*(client.close() for client in clients), return_exceptions=True)
 
     def _build_run_config_payload(self) -> dict[str, Any]:
         return {
@@ -326,7 +348,8 @@ class Agent:
         cancel_event: Event | None = None,
     ) -> TurnResult:
         try:
-            return await self._loop(
+            await self._initialize_mcp_tools()
+            result = await self._loop(
                 user_input,
                 task_id=task_id,
                 task_metadata=task_metadata,
@@ -342,7 +365,25 @@ class Agent:
                 resume_state=resume_state,
                 cancel_event=cancel_event,
             )
+            if self._mcp_clients:
+                result.extra["mcp"] = {
+                    "discovery": [client.discovery_record for client in self._mcp_clients],
+                    "calls": [
+                        {
+                            "server_id": record.server_id,
+                            "tool_name": record.tool_name,
+                            "arguments_sha256": record.arguments_sha256,
+                            "status": record.status,
+                            "duration_ms": record.duration_ms,
+                            "failure_category": record.failure_category,
+                        }
+                        for client in self._mcp_clients
+                        for record in client.audit_records
+                    ],
+                }
+            return result
         finally:
+            await self._close_mcp_tools()
             if self.client is not None and hasattr(self.client, "aclose"):
                 await self.client.aclose()
 

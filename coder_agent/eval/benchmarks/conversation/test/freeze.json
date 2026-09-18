@@ -1,0 +1,20 @@
+{
+  "schema_version": "conversation-freeze/v1",
+  "frozen_at": "2026-09-18T00:00:00+00:00",
+  "task_ids": [
+    "conv_test_clarify_timezone",
+    "conv_test_clarify_separator",
+    "conv_test_incremental_theme",
+    "conv_test_incremental_retry",
+    "conv_test_correction_protocol",
+    "conv_test_correction_region",
+    "conv_test_regression_auth",
+    "conv_test_regression_cache",
+    "conv_test_context_alias",
+    "conv_test_context_adapter",
+    "conv_test_scope_fixture",
+    "conv_test_scope_contract"
+  ],
+  "tasks_yaml_sha256": "090650f6f46fa675b681c09041e5c6567732af88566fc0c88c29d935ff600ca0",
+  "fixture_tree_sha256": "5903c86286d5406469d9dfe656bea2e4bceb73af5aaf6f2f90bb81126744c64a"
+}

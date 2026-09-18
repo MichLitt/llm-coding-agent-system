@@ -109,6 +109,41 @@ def test_eval_loads_swebench_subset(monkeypatch):
     assert captured["benchmark_name"] == "swebench"
 
 
+def test_eval_loads_complex_code_tasks(monkeypatch):
+    captured = {}
+
+    class FakeProfile:
+        dimensions = {"compatibility": 3}
+        rationale = "fixture test"
+
+    class FakeTask:
+        task_id = "complex_demo"
+        description = "repair fixture"
+        setup_files = ["demo.py"]
+        verification = [{"cmd": "pytest -q demo.py"}]
+        complexity_profile = FakeProfile()
+        max_steps = 30
+        metadata = {"source": "test"}
+
+    def fake_load_complex_tasks(path):
+        captured["path"] = path
+        return [FakeTask()]
+
+    def fake_run_suite(self, tasks, **kwargs):
+        captured["tasks"] = tasks
+        captured["benchmark_name"] = kwargs["benchmark_name"]
+
+    monkeypatch.setattr("coder_agent.eval.benchmarks.complex_code.loader.load_complex_code_tasks", fake_load_complex_tasks)
+    monkeypatch.setattr(eval_module.EvalRunner, "run_suite", fake_run_suite)
+    result = CliRunner().invoke(cli, ["eval", "--benchmark", "complex", "--preset", "C3"])
+
+    assert result.exit_code == 0
+    assert captured["benchmark_name"] == "complex"
+    task = captured["tasks"][0]
+    assert task.metadata["fixture_root"].endswith("complex_code/setup_files")
+    assert task.metadata["complexity_profile"]["dimensions"] == {"compatibility": 3}
+
+
 def test_eval_filters_compare_tasks_by_task_id(monkeypatch):
     captured = {}
 

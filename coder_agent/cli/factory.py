@@ -9,6 +9,7 @@ from coder_agent.core.session import AgentSession
 from coder_agent.memory.manager import MemoryManager
 from coder_agent.memory.run_state import RunStateStore
 from coder_agent.memory.trajectory import TrajectoryStore
+from coder_agent.tools.mcp import MCPServerConfig
 
 
 CONFIG_PRESETS: dict[str, dict] = {
@@ -103,6 +104,7 @@ def make_agent(
     )
     model_seed = resolve_model_seed(resolved_experiment_config)
     fixed_knowledge_index_id = resolve_fixed_knowledge_index_id(resolved_experiment_config)
+    mcp_servers = tuple(MCPServerConfig.from_mapping(value) for value in cfg.tools.mcp_servers)
 
     client = LLMClient(profile=resolved_profile)
     model_cfg = ModelConfig(
@@ -140,6 +142,7 @@ def make_agent(
         llm_profile_name=resolved_profile.name,
         preset_name=preset_name,
         owns_run_state_store=run_state_store is None and resolved_run_state_store is not None,
+        mcp_servers=mcp_servers,
     )
     return agent
 

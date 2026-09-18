@@ -1,0 +1,168 @@
+tasks:
+  - conversation_id: conv_dev_clarify_format
+    split: dev
+    category: clarification-before-action
+    difficulty: medium
+    setup_files: [clarify/settings.txt]
+    max_total_steps: 30
+    verification_contract:
+      clarification_patterns: {t1: [which, format, json, yaml]}
+      constraint_checks:
+        preserve_empty_settings: [{cmd: 'test ! -s clarify/settings.txt'}]
+        use_json: [{cmd: 'grep -qx "format=json" clarify/settings.txt'}]
+    turns:
+      - turn_id: t1
+        user_message: "Add an export format to settings."
+        intent: clarify ambiguous format before editing
+        expects_clarification: true
+        introduces_constraints: [preserve_empty_settings]
+      - turn_id: t2
+        user_message: "Use JSON format."
+        intent: apply clarified choice
+        retains_constraints: []
+        phase_checks: [{cmd: 'grep -qx "format=json" clarify/settings.txt'}]
+      - turn_id: t3
+        user_message: "Keep the setting as a single line."
+        intent: preserve requested representation
+        introduces_constraints: [use_json]
+        phase_checks: [{cmd: 'test "$(wc -l < clarify/settings.txt)" -eq 1'}]
+    final_checks: [{cmd: 'grep -qx "format=json" clarify/settings.txt'}]
+  - conversation_id: conv_dev_incremental_limit
+    split: dev
+    category: incremental-requirement
+    difficulty: medium
+    setup_files: [incremental/config.txt]
+    max_total_steps: 35
+    verification_contract:
+      constraint_checks:
+        preserve_name: [{cmd: 'grep -qx "name=atlas" incremental/config.txt'}]
+        add_limit: [{cmd: 'grep -qx "limit=20" incremental/config.txt'}]
+    turns:
+      - turn_id: t1
+        user_message: "Create a config with name atlas."
+        intent: establish base config
+        introduces_constraints: [preserve_name]
+        phase_checks: [{cmd: 'grep -qx "name=atlas" incremental/config.txt'}]
+      - turn_id: t2
+        user_message: "Add a limit of 20 without removing the name."
+        intent: add requirement while retaining base
+        retains_constraints: [preserve_name]
+        introduces_constraints: [add_limit]
+        phase_checks: [{cmd: 'grep -qx "limit=20" incremental/config.txt'}]
+      - turn_id: t3
+        user_message: "Sort config keys alphabetically."
+        intent: refine representation
+        retains_constraints: [preserve_name, add_limit]
+        phase_checks: [{cmd: 'test "$(head -1 incremental/config.txt)" = "limit=20"'}]
+    final_checks: [{cmd: 'grep -qx "name=atlas" incremental/config.txt'}, {cmd: 'grep -qx "limit=20" incremental/config.txt'}]
+  - conversation_id: conv_dev_correction_rename
+    split: dev
+    category: user-correction
+    difficulty: medium
+    setup_files: [correction/api.txt]
+    max_total_steps: 35
+    verification_contract:
+      constraint_checks:
+        no_legacy_endpoint: [{cmd: '! grep -q "legacy" correction/api.txt'}]
+        stable_version: [{cmd: 'grep -qx "version=v1" correction/api.txt'}]
+    turns:
+      - turn_id: t1
+        user_message: "Add endpoint=legacy and keep version v1."
+        intent: create initial endpoint
+        introduces_constraints: [stable_version]
+        phase_checks: [{cmd: 'grep -qx "endpoint=legacy" correction/api.txt'}]
+      - turn_id: t2
+        user_message: "Correction: endpoint must be modern, not legacy; version remains v1."
+        intent: replace conflicting requirement
+        retains_constraints: [stable_version]
+        introduces_constraints: [no_legacy_endpoint]
+        phase_checks: [{cmd: 'grep -qx "endpoint=modern" correction/api.txt'}]
+      - turn_id: t3
+        user_message: "Do not add any extra keys."
+        intent: constrain corrected result
+        retains_constraints: [stable_version, no_legacy_endpoint]
+        phase_checks: [{cmd: 'test "$(wc -l < correction/api.txt)" -eq 2'}]
+    final_checks: [{cmd: 'grep -qx "endpoint=modern" correction/api.txt'}, {cmd: 'grep -qx "version=v1" correction/api.txt'}]
+  - conversation_id: conv_dev_regression_flag
+    split: dev
+    category: regression-preservation
+    difficulty: medium
+    setup_files: [regression/flags.txt]
+    max_total_steps: 35
+    verification_contract:
+      constraint_checks:
+        preserve_safe: [{cmd: 'grep -qx "safe=true" regression/flags.txt'}]
+        enable_cache: [{cmd: 'grep -qx "cache=true" regression/flags.txt'}]
+    turns:
+      - turn_id: t1
+        user_message: "Set safe=true."
+        intent: establish regression guard
+        introduces_constraints: [preserve_safe]
+        phase_checks: [{cmd: 'grep -qx "safe=true" regression/flags.txt'}]
+      - turn_id: t2
+        user_message: "Enable cache=true and retain safe=true."
+        intent: add feature safely
+        retains_constraints: [preserve_safe]
+        introduces_constraints: [enable_cache]
+        phase_checks: [{cmd: 'grep -qx "cache=true" regression/flags.txt'}]
+      - turn_id: t3
+        user_message: "Use only boolean flags."
+        intent: preserve both values
+        retains_constraints: [preserve_safe, enable_cache]
+        phase_checks: [{cmd: '! grep -Ev "^(safe|cache)=true$" regression/flags.txt'}]
+    final_checks: [{cmd: 'grep -qx "safe=true" regression/flags.txt'}, {cmd: 'grep -qx "cache=true" regression/flags.txt'}]
+  - conversation_id: conv_dev_context_reference
+    split: dev
+    category: contextual-reference
+    difficulty: medium
+    setup_files: [context/service.txt]
+    max_total_steps: 35
+    verification_contract:
+      constraint_checks:
+        preserve_sync: [{cmd: 'grep -qx "mode=sync" context/service.txt'}]
+        add_retry: [{cmd: 'grep -qx "retries=3" context/service.txt'}]
+    turns:
+      - turn_id: t1
+        user_message: "Configure the service in sync mode."
+        intent: define referenced interface
+        introduces_constraints: [preserve_sync]
+        phase_checks: [{cmd: 'grep -qx "mode=sync" context/service.txt'}]
+      - turn_id: t2
+        user_message: "For the previous mode, add three retries."
+        intent: resolve contextual reference
+        retains_constraints: [preserve_sync]
+        introduces_constraints: [add_retry]
+        phase_checks: [{cmd: 'grep -qx "retries=3" context/service.txt'}]
+      - turn_id: t3
+        user_message: "Keep the previous interface unchanged."
+        intent: preserve referenced setting
+        retains_constraints: [preserve_sync, add_retry]
+        phase_checks: [{cmd: 'test "$(wc -l < context/service.txt)" -eq 2'}]
+    final_checks: [{cmd: 'grep -qx "mode=sync" context/service.txt'}, {cmd: 'grep -qx "retries=3" context/service.txt'}]
+  - conversation_id: conv_dev_scope_lock
+    split: dev
+    category: scope-and-constraint-control
+    difficulty: hard
+    setup_files: [scope/app.txt, scope/locked.txt]
+    max_total_steps: 40
+    verification_contract:
+      constraint_checks:
+        preserve_locked: [{cmd: 'grep -qx "LOCKED" scope/locked.txt'}]
+        add_feature: [{cmd: 'grep -qx "feature=on" scope/app.txt'}]
+    turns:
+      - turn_id: t1
+        user_message: "Do not edit locked.txt; add feature=on to app.txt."
+        intent: enforce file scope
+        introduces_constraints: [preserve_locked, add_feature]
+        phase_checks: [{cmd: 'grep -qx "feature=on" scope/app.txt'}]
+      - turn_id: t2
+        user_message: "Add mode=compat, still do not modify the locked file."
+        intent: preserve scope while extending
+        retains_constraints: [preserve_locked, add_feature]
+        phase_checks: [{cmd: 'grep -qx "mode=compat" scope/app.txt'}]
+      - turn_id: t3
+        user_message: "Keep only the two supported app keys."
+        intent: constrain final scope
+        retains_constraints: [preserve_locked, add_feature]
+        phase_checks: [{cmd: 'test "$(wc -l < scope/app.txt)" -eq 2'}]
+    final_checks: [{cmd: 'grep -qx "LOCKED" scope/locked.txt'}, {cmd: 'grep -qx "feature=on" scope/app.txt'}, {cmd: 'grep -qx "mode=compat" scope/app.txt'}]

@@ -1,0 +1,47 @@
+tasks:
+  - task_id: complex_v1_migration_idempotency
+    description: "Make the state migration idempotent: rerunning it must neither duplicate records nor change an already migrated value."
+    setup_files: [migration/store.py, migration/test_store.py]
+    verification: [{cmd: "pytest -q migration/test_store.py"}]
+    max_steps: 35
+    complexity_profile:
+      dimensions: {modules: 1, state: 3, migration: 3, recovery: 2, verification: 2}
+      rationale: "Persistent state transition must preserve old records and be safely repeatable after interruption."
+  - task_id: complex_v1_compatibility_parser
+    description: "Preserve legacy comma-separated input while accepting the new semicolon-separated format without returning empty fields."
+    setup_files: [compat/parser.py, compat/test_parser.py]
+    verification: [{cmd: "pytest -q compat/test_parser.py"}]
+    max_steps: 30
+    complexity_profile:
+      dimensions: {modules: 1, compatibility: 3, state: 1, verification: 2}
+      rationale: "Parser change must remain backward compatible while enforcing normalized output."
+  - task_id: complex_v1_recovery_checkpoint
+    description: "Resume a batch after interruption without reprocessing completed item IDs."
+    setup_files: [recovery/worker.py, recovery/test_worker.py]
+    verification: [{cmd: "pytest -q recovery/test_worker.py"}]
+    max_steps: 35
+    complexity_profile:
+      dimensions: {state: 3, recovery: 3, compatibility: 1, verification: 2}
+      rationale: "Recovery must preserve checkpoint state and avoid duplicate side effects."
+  - task_id: complex_v1_concurrent_dedup
+    description: "Deduplicate concurrent submissions by stable event ID while preserving first-seen order."
+    setup_files: [concurrency/events.py, concurrency/test_events.py]
+    verification: [{cmd: "pytest -q concurrency/test_events.py"}]
+    max_steps: 35
+    complexity_profile:
+      dimensions: {concurrency: 3, state: 2, modules: 1, verification: 2}
+      rationale: "Concurrent retries require idempotent event handling and deterministic ordering."
+  - task_id: complex_v1_validation_boundary
+    description: "Reject invalid persisted records while preserving valid records in a mixed batch."
+    setup_files: [validation/check.py, validation/test_check.py]
+    verification: [{cmd: "pytest -q validation/test_check.py"}]
+    complexity_profile:
+      dimensions: {state: 2, modules: 1, verification: 3, compatibility: 1}
+      rationale: "Validation boundary must isolate malformed data without discarding valid state."
+  - task_id: complex_v1_module_contract
+    description: "Keep the public serializer contract while moving optional metadata into a separate nested field."
+    setup_files: [contract/codec.py, contract/test_codec.py]
+    verification: [{cmd: "pytest -q contract/test_codec.py"}]
+    complexity_profile:
+      dimensions: {modules: 2, compatibility: 3, migration: 2, verification: 2}
+      rationale: "Public cross-module shape must remain stable during representation migration."

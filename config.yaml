@@ -48,6 +48,11 @@ agent:
 
 tools:
   terminal_timeout: 30
+  # MCP stays disabled unless an explicit local stdio server is listed here.
+  # Each entry declares id, command, args, workdir (optional), tool_allowlist,
+  # timeout_seconds, and env_allowlist.  Secrets are forwarded only when their
+  # environment-variable names are listed in env_allowlist.
+  mcp_servers: []
   blocked_commands:
     - "rm -rf /"
     - "sudo"

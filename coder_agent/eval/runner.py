@@ -544,7 +544,11 @@ class EvalRunner:
             from coder_agent.eval.benchmarks.swebench.adapter import prepare_swebench_workspace
 
             return prepare_swebench_workspace(task, workspace)
-        prepare_workspace(task.setup_files, workspace)
+        fixture_root = task.metadata.get("fixture_root")
+        if fixture_root:
+            prepare_workspace(task.setup_files, workspace, setup_dir=Path(fixture_root))
+        else:
+            prepare_workspace(task.setup_files, workspace)
         return workspace
 
     def _benchmark_metadata(self, tasks: list[TaskSpec], benchmark_name: str) -> dict[str, Any]:

@@ -110,6 +110,8 @@ class ToolsConfig:
         "blocked_commands",
         ["rm -rf /", "sudo", ":(){:|:&};:", "/dev/sda", "mkfs", "dd if=", "chmod -R 777 /"],
     ))
+    # Empty by default: MCP is an explicit local integration, never auto-discovered.
+    mcp_servers: list[dict] = field(default_factory=lambda: _Y.get("tools", {}).get("mcp_servers", []))
 
 
 @dataclass
@@ -238,6 +240,8 @@ def validate_config(config: "Config") -> None:
         raise ValueError(f"agent.max_retries must be >= 0, got {config.agent.max_retries}")
     if config.tools.terminal_timeout < 1:
         raise ValueError(f"tools.terminal_timeout must be >= 1, got {config.tools.terminal_timeout}")
+    if not isinstance(getattr(config.tools, "mcp_servers", []), list):
+        raise ValueError("tools.mcp_servers must be a list")
     if config.model.api_format not in ("openai", "anthropic"):
         raise ValueError(
             f"model.api_format must be 'openai' or 'anthropic', got {config.model.api_format!r}"

@@ -172,6 +172,71 @@
       ],
       "primary_failure_mode_category": "genuine_implementation_miss",
       "max_steps": 16
+    },
+    {
+      "instance_id": "pylint-dev__pylint-6506",
+      "subset": ["promoted"],
+      "python_version": "3.10",
+      "setup_commands": [
+        "uv venv --python {python_version} .swebench-venv",
+        "uv pip install --python .swebench-venv/bin/python setuptools wheel",
+        "uv pip install --python .swebench-venv/bin/python --no-build-isolation -e . pytest"
+      ],
+      "setup_complexity": "medium",
+      "test_command_override": "python -m pytest -q -p no:benchmark tests/config/test_config.py::test_unknown_option_name tests/config/test_config.py::test_unknown_short_option_name",
+      "expected_patch_targets": ["pylint/config/config_initialization.py", "tests/config/test_config.py"],
+      "expected_patch_target_count": 2,
+      "authorized_test_edit_paths": ["tests/config/test_config.py"],
+      "primary_failure_mode_category": "genuine_implementation_miss",
+      "max_steps": 16
+    },
+    {
+      "instance_id": "mwaskom__seaborn-3407",
+      "subset": ["promoted"],
+      "python_version": "3.10",
+      "setup_commands": [
+        "uv venv --python {python_version} .swebench-venv",
+        "uv pip install --python .swebench-venv/bin/python -e . pytest 'matplotlib<3.8' 'numpy<2'"
+      ],
+      "setup_complexity": "medium",
+      "test_command_override": "python -m pytest -q tests/test_axisgrid.py::TestPairGrid::test_pairplot_column_multiindex",
+      "expected_patch_targets": ["seaborn/axisgrid.py", "tests/test_axisgrid.py"],
+      "expected_patch_target_count": 2,
+      "authorized_test_edit_paths": ["tests/test_axisgrid.py"],
+      "primary_failure_mode_category": "genuine_implementation_miss",
+      "max_steps": 16
+    },
+    {
+      "instance_id": "psf__requests-3362",
+      "subset": ["promoted"],
+      "python_version": "3.9",
+      "setup_commands": [
+        "uv venv --python {python_version} .swebench-venv",
+        "uv pip install --python .swebench-venv/bin/python -e . pytest 'urllib3==1.26.18' 'chardet==4.0.0'"
+      ],
+      "setup_complexity": "medium",
+      "test_command_override": "python -m pytest -q tests/test_requests.py::TestRequests::test_response_decode_unicode",
+      "expected_patch_targets": ["requests/utils.py", "tests/test_requests.py"],
+      "expected_patch_target_count": 2,
+      "authorized_test_edit_paths": ["tests/test_requests.py"],
+      "primary_failure_mode_category": "genuine_implementation_miss",
+      "max_steps": 16
+    },
+    {
+      "instance_id": "pydata__xarray-5131",
+      "subset": ["promoted"],
+      "python_version": "3.9",
+      "setup_commands": [
+        "uv venv --python {python_version} .swebench-venv",
+        "uv pip install --python .swebench-venv/bin/python -e . pytest 'setuptools<81' 'numpy<2' 'pandas<2'"
+      ],
+      "setup_complexity": "medium",
+      "test_command_override": "python -m pytest -q xarray/tests/test_groupby.py::test_groupby_repr",
+      "expected_patch_targets": ["xarray/core/groupby.py", "xarray/tests/test_groupby.py"],
+      "expected_patch_target_count": 2,
+      "authorized_test_edit_paths": ["xarray/tests/test_groupby.py"],
+      "primary_failure_mode_category": "genuine_implementation_miss",
+      "max_steps": 16
     }
   ]
 }

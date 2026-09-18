@@ -41,6 +41,10 @@ _EXPECTED_PROMOTED_IDS = {
     "pytest-dev__pytest-7373",
     "sphinx-doc__sphinx-8273",
     "pallets__flask-4992",
+    "pylint-dev__pylint-6506",
+    "mwaskom__seaborn-3407",
+    "psf__requests-3362",
+    "pydata__xarray-5131",
 }
 _EXPECTED_PROMOTED_REPOS = {
     "pylint-dev/pylint",
@@ -48,6 +52,9 @@ _EXPECTED_PROMOTED_REPOS = {
     "pytest-dev/pytest",
     "sphinx-doc/sphinx",
     "pallets/flask",
+    "mwaskom/seaborn",
+    "psf/requests",
+    "pydata/xarray",
 }
 
 
@@ -258,6 +265,10 @@ def test_load_swebench_tasks_by_subset():
         "pytest-dev__pytest-7373": "3.9",
         "sphinx-doc__sphinx-8273": "3.10",
         "pallets__flask-4992": "3.11",
+        "pylint-dev__pylint-6506": "3.10",
+        "mwaskom__seaborn-3407": "3.10",
+        "psf__requests-3362": "3.9",
+        "pydata__xarray-5131": "3.9",
     }
     assert all(task.metadata["setup_commands"] for task in promoted_tasks)
     assert all(task.metadata["primary_failure_mode_category"] for task in promoted_tasks)
@@ -300,6 +311,13 @@ def test_load_swebench_tasks_by_subset():
     ]
     assert any("requirements/tests.txt" in command for command in flask_task.metadata["setup_commands"])
     assert any("Werkzeug<2.3" in command for command in flask_task.metadata["setup_commands"])
+    seaborn_task = next(task for task in promoted_tasks if task.task_id == "mwaskom__seaborn-3407")
+    assert any("matplotlib<3.8" in command and "numpy<2" in command for command in seaborn_task.metadata["setup_commands"])
+    requests_task = next(task for task in promoted_tasks if task.task_id == "psf__requests-3362")
+    assert requests_task.metadata["python_version"] == "3.9"
+    assert any("urllib3==1.26.18" in command for command in requests_task.metadata["setup_commands"])
+    xarray_task = next(task for task in promoted_tasks if task.task_id == "pydata__xarray-5131")
+    assert any("setuptools<81" in command and "pandas<2" in command for command in xarray_task.metadata["setup_commands"])
     assert all(task.metadata["official_manifest_sha256"] for task in smoke_tasks + promoted_tasks)
 
 

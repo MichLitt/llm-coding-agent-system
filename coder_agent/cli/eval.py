@@ -5,6 +5,7 @@ import click
 
 from coder_agent.config import cfg
 from coder_agent.core.agent import Agent
+from coder_agent.core.session import AgentSession
 from coder_agent.eval.runner import EvalRunner, TaskSpec
 from coder_agent.memory.trajectory import TrajectoryStore
 
@@ -20,7 +21,7 @@ from .factory import (
 @click.command(name="eval")
 @click.option(
     "--benchmark",
-    type=click.Choice(["humaneval", "custom", "swebench"]),
+    type=click.Choice(["humaneval", "custom", "swebench", "conversation", "complex"]),
     default="custom",
     help="Which benchmark to run",
 )
@@ -92,6 +93,35 @@ def eval_command(
 
     runner = EvalRunner(agent_factory=agent_factory, output_dir=output_dir, llm_profile_name=llm_profile)
 
+    if benchmark == "conversation":
+        if not task_dir:
+            raise click.UsageError("--benchmark conversation requires --task-dir containing tasks.yaml and fixtures/")
+        from coder_agent.eval.benchmarks.conversation.loader import load_conversation_tasks
+        from coder_agent.eval.conversation_metrics import compute_conversation_metrics
+        from coder_agent.eval.conversation_runner import ConversationRunner
+
+        tasks = load_conversation_tasks(Path(task_dir) / "tasks.yaml")
+        if task_ids:
+            wanted = set(task_ids); tasks = [task for task in tasks if task.conversation_id in wanted]
+            if wanted - {task.conversation_id for task in tasks}:
+                raise click.UsageError("Unknown conversation id(s): " + ", ".join(sorted(wanted - {task.conversation_id for task in tasks})))
+        if limit > 0: tasks = tasks[:limit]
+        if compare:
+            raise click.UsageError("--compare is not yet supported for ConversationBench")
+        conversation_output = output_dir / config_label
+        conversation_workspace = cfg.agent.workspace / config_label / "conversation"
+        def session_factory(workspace: Path) -> AgentSession:
+            return AgentSession(make_agent(resolve_agent_config(preset), workspace=workspace, experiment_id=config_label, trajectory_store=tstore, config_label=config_label, experiment_config=parsed_experiment_config, llm_profile=llm_profile))
+        profile = resolve_llm_profile(llm_profile)
+        run_metadata = {
+            "preset": preset, "agent_config": resolve_agent_config(preset),
+            "runtime_experiment_config": parsed_experiment_config or {}, "llm_profile": profile.name,
+            "llm_model": profile.model, "llm_transport": profile.transport,
+        }
+        results = ConversationRunner(session_factory, conversation_output, Path(task_dir) / "fixtures", run_metadata=run_metadata).run_suite(tasks, conversation_workspace, resume=resume)
+        metrics = compute_conversation_metrics(results)
+        click.echo(f"ConversationBench completed={metrics.conversation_success.numerator}/{metrics.conversation_success.denominator}")
+        return
     if benchmark == "humaneval":
         from coder_agent.eval.benchmarks.humaneval import HumanEvalBenchmark
 
@@ -119,6 +149,32 @@ def eval_command(
 
         tasks = load_swebench_tasks(subset=swebench_subset)
         click.echo(f"Loaded {len(tasks)} SWE-bench tasks from subset={swebench_subset}")
+    elif benchmark == "complex":
+        from coder_agent.eval.benchmarks.complex_code.loader import load_complex_code_tasks
+
+        complex_root = Path(task_dir) if task_dir else (Path(__file__).resolve().parents[1] / "eval" / "benchmarks" / "complex_code")
+        complex_tasks = load_complex_code_tasks(complex_root / "tasks.yaml")
+        tasks = [
+            TaskSpec(
+                task_id=task.task_id,
+                description=task.description,
+                difficulty="hard",
+                setup_files=task.setup_files,
+                verification=task.verification,
+                verification_contract={"mode": "custom_commands", "max_attempts": 2},
+                max_steps=task.max_steps,
+                metadata={
+                    "benchmark": "complex",
+                    "fixture_root": str((complex_root / "setup_files").resolve()),
+                    "complexity_profile": {
+                        "dimensions": dict(task.complexity_profile.dimensions),
+                        "rationale": task.complexity_profile.rationale,
+                    },
+                    **task.metadata,
+                },
+            )
+            for task in complex_tasks
+        ]
     else:
         from coder_agent.eval.benchmarks.custom.loader import load_custom_tasks
 

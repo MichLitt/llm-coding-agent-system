@@ -14,12 +14,20 @@ License: [MIT](./LICENSE).
 - HumanEval runner for function-level benchmark evaluation
 - Trajectory analysis, layered failure reports, and experiment comparison
 - Optional document knowledge retrieval with source/page citations via `rag-benchmark-system`
+- Optional local MCP stdio tools with explicit server and environment allowlists
 
 ## Current Status
 
 Current code version: `0.7.4`
 
 Current accepted baseline cycle: `0.7.2` via `report/BASELINE_0_7_2.md`
+
+Next planned evaluation cycle: `v0.8.0`, covering scripted multi-turn
+repository sessions, constraint-retention metrics, deterministic complex-code
+fixtures, and expansion of the promoted SWE lane from 8 to 12 tasks. The
+execution contract and phase gates are defined in
+[`IMPROVEMENT_PLAN_v0.8.0.md`](./report/IMPROVEMENT_PLAN_v0.8.0.md). This is a
+plan, not a shipped capability or an accepted quality-improvement claim.
 
 The `0.7.4` release closes the Agent Knowledge integration loop. When
 `RAG_API_URL` is configured, `build_tools()` adds `knowledge_retrieval`; when it
@@ -47,7 +55,7 @@ Key points:
 - Eval runs with a `config_label` now allocate a unique run workspace under `<workspace>/<config_label>/<run_id>/`.
 - `--resume` now means "skip completed tasks and continue remaining tasks"; it does not restore prior workspace state, conversation history, or loop state.
 - `--benchmark swebench` now runs a version-pinned official SWE-bench Lite subset with per-task workspaces under `<run_workspace>/<task_id>/`.
-- The checked-in SWE smoke subset now covers `3` fixed tasks; the promoted compare subset now covers `8` fixed tasks across `5` upstream repos and remains hash-audited.
+- The checked-in SWE smoke subset covers `3` fixed tasks; the promoted compare subset covers `12` fixed tasks across `8` upstream repos and remains hash-audited.
 - The SWE-bench task source of truth is now `official_manifest.generated.json` plus `local_overrides.json`, not a hand-written single task manifest.
 - Promoted SWE-bench tasks now use explicit per-task test-edit authorization where regression-file edits are intentionally allowed, instead of relying on broad implicit fallback.
 - `analyze` now writes a machine-readable layered failure report alongside the console summary.
@@ -55,6 +63,7 @@ Key points:
 
 Recommended reading:
 
+- [IMPROVEMENT_PLAN_v0.8.0.md](./report/IMPROVEMENT_PLAN_v0.8.0.md)
 - [BASELINE_0_7_2.md](./report/BASELINE_0_7_2.md)
 - [IMPROVEMENT_REPORT_v0.7.4-knowledge.md](./report/IMPROVEMENT_REPORT_v0.7.4-knowledge.md)
 - [IMPROVEMENT_REPORT_v0.7.3-evalops.md](./report/IMPROVEMENT_REPORT_v0.7.3-evalops.md)
@@ -138,6 +147,32 @@ uv run python -m coder_agent run "Use the indexed release manual to check the ga
 reporting remains fire-and-forget and does not make the Agent run depend on the
 platform.
 
+### Optional: enable a local MCP stdio server
+
+MCP is disabled by default and never discovers or installs servers on its own.
+To enable a local server, add an explicit entry under `tools.mcp_servers` in
+`config.yaml`. The adapter registers allowlisted tools as
+`mcp.<server_id>.<tool_name>` only for the active Agent run. It starts the
+server over stdio, enforces its per-call timeout, then terminates it when the
+run completes or is cancelled. Only environment-variable names listed in
+`env_allowlist` are forwarded to the server; do not put secret values in this
+file.
+
+```yaml
+tools:
+  mcp_servers:
+    - id: local_docs
+      command: /absolute/path/to/mcp-server
+      args: ["--stdio"]
+      workdir: /absolute/path/to/server-workdir
+      tool_allowlist: [search_docs]
+      timeout_seconds: 15
+      env_allowlist: [DOCS_API_TOKEN]
+```
+
+Remote transports, OAuth, automatic server discovery, and automatic
+installation are intentionally unsupported in the v0.8.0 scope.
+
 For a controlled evaluation, set `rag_index_id` in the run-scoped experiment
 configuration. It locks retrieval to that index even if the model supplies a
 different index name:
@@ -166,6 +201,36 @@ Inspect recent runs and a specific checkpoint before resuming:
 uv run python -m coder_agent runs list --limit 20
 uv run python -m coder_agent runs show <run_id>
 ```
+
+### v0.8 evaluation protocol (implementation in progress)
+
+ConversationBench has a dedicated runner and must be invoked with an explicit
+fixture directory; its test split is hash-frozen and is separate from Custom,
+HumanEval, and SWE-bench results:
+
+```bash
+uv run python -m coder_agent eval --benchmark conversation \
+  --task-dir coder_agent/eval/benchmarks/conversation/dev
+```
+
+ComplexCodeBench fixtures use a clean-workspace buggy/gold replay audit before
+they may enter a model baseline:
+
+```bash
+uv run python -m coder_agent audit-complex
+```
+
+Run its model-backed lane with the standard evaluation CLI:
+
+```bash
+uv run python -m coder_agent eval --benchmark complex --preset C3 \
+  --llm-profile glm_5 --config-label complex_baseline
+```
+
+These commands verify evaluation protocol and fixture integrity. They do not
+constitute a model-quality claim; see
+[`IMPROVEMENT_REPORT_v0.8.0-eval-protocol.md`](./report/IMPROVEMENT_REPORT_v0.8.0-eval-protocol.md)
+for the current boundary and remaining work.
 
 Switch provider with `--llm-profile`:
 
@@ -304,6 +369,12 @@ llm:
 Then add the corresponding vars to `.env` and use `--llm-profile my_provider`.
 
 ## Evaluation and Re-Baselining
+
+The next execution plan is
+[`IMPROVEMENT_PLAN_v0.8.0.md`](./report/IMPROVEMENT_PLAN_v0.8.0.md). It keeps
+the existing Custom lane stable, introduces separate ConversationBench and
+ComplexCodeBench lanes, and requires the new protocols and frozen datasets to
+be baselined before any Agent behavior candidate is implemented.
 
 The branch currently has three relevant accepted baseline documents:
 
