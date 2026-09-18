@@ -143,6 +143,31 @@ class ConversationRunner:
     def run_suite(self, tasks: list[ConversationTaskSpec], workspace_root: Path, *, resume: bool = False) -> list[ConversationResult]:
         """Resume only at a completed conversation boundary, never mid-session."""
         manifest_path = self.output_dir / "conversation_run_manifest.json"
+        expected = {task.conversation_id: _sha256(task.snapshot()) for task in tasks}
+
+        def write_manifest(results: list[ConversationResult]) -> None:
+            """Checkpoint after each task so an interrupted suite can resume safely."""
+            manifest_path.write_text(json.dumps({
+                "schema_version": SCHEMA_VERSION, "task_manifest_sha256": _sha256(expected),
+                "task_ids": list(expected),
+                "completed_conversation_ids": [item.conversation_id for item in results if item.success],
+                "resume_boundary": "conversation_task_only", "fixture_tree_sha256": _tree_sha256(self.fixture_root),
+                "git_commit": git_commit(), "run_metadata": self.run_metadata,
+                "results": [{"conversation_id": item.conversation_id, "success": item.success, "summary_sha256": _sha256(asdict(item))} for item in results],
+            }, indent=2), encoding="utf-8")
+
+        def load_completed_summary(conversation_id: str) -> ConversationResult | None:
+            summary = self.output_dir / f"{conversation_id}_summary.json"
+            if not summary.exists():
+                return None
+            raw = json.loads(summary.read_text(encoding="utf-8"))
+            if raw.get("success") is not True or raw.get("manifest_sha256") != expected[conversation_id]:
+                return None
+            return ConversationResult(
+                conversation_id, True, [], raw["final_checks"], raw["workspace_final_sha256"],
+                raw["manifest_sha256"], raw["failure_categories"], raw["total_turns"],
+            )
+
         if not resume:
             for path in [manifest_path, self.output_dir / "conversation_turns.jsonl"]:
                 if path.exists(): path.unlink()
@@ -152,29 +177,28 @@ class ConversationRunner:
         completed: dict[str, ConversationResult] = {}
         if resume and manifest_path.exists():
             previous = json.loads(manifest_path.read_text(encoding="utf-8"))
-            expected = {task.conversation_id: _sha256(task.snapshot()) for task in tasks}
             if previous.get("task_manifest_sha256") != _sha256(expected):
                 raise ValueError("cannot resume: conversation task manifest changed")
             for conversation_id in previous.get("completed_conversation_ids", []):
-                summary = self.output_dir / f"{conversation_id}_summary.json"
-                if summary.exists():
-                    raw = json.loads(summary.read_text(encoding="utf-8"))
-                    if raw.get("success") is True:
-                        completed[conversation_id] = ConversationResult(
-                            conversation_id, True, [], raw["final_checks"], raw["workspace_final_sha256"], raw["manifest_sha256"], raw["failure_categories"], raw["total_turns"]
-                        )
+                if conversation_id in expected:
+                    result = load_completed_summary(conversation_id)
+                    if result is not None:
+                        completed[conversation_id] = result
+        elif resume:
+            # Older interrupted runs may have task summaries but no suite manifest.
+            # Those summaries are self-authenticating through their frozen task hash.
+            for conversation_id in expected:
+                result = load_completed_summary(conversation_id)
+                if result is not None:
+                    completed[conversation_id] = result
+
         results: list[ConversationResult] = []
+        # Save the run identity before the first model call, then after every boundary.
+        write_manifest(results)
         for task in tasks:
             result = completed.get(task.conversation_id) or self.run_task(task, workspace_root / task.conversation_id)
             results.append(result)
-        expected = {task.conversation_id: _sha256(task.snapshot()) for task in tasks}
-        manifest_path.write_text(json.dumps({
-            "schema_version": SCHEMA_VERSION, "task_manifest_sha256": _sha256(expected),
-            "task_ids": list(expected), "completed_conversation_ids": [item.conversation_id for item in results if item.success],
-            "resume_boundary": "conversation_task_only", "fixture_tree_sha256": _tree_sha256(self.fixture_root),
-            "git_commit": git_commit(), "run_metadata": self.run_metadata,
-            "results": [{"conversation_id": item.conversation_id, "success": item.success, "summary_sha256": _sha256(asdict(item))} for item in results],
-        }, indent=2), encoding="utf-8")
+            write_manifest(results)
         return results
 
     def _append_artifacts(self, result: ConversationResult) -> None:

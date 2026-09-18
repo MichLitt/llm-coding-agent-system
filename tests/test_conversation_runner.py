@@ -75,6 +75,56 @@ def test_resume_skips_only_successfully_completed_conversation_boundaries(tmp_pa
     assert len(calls) == 1
 
 
+def test_resume_recovers_completed_task_after_interruption(tmp_path):
+    fixtures = tmp_path / "fixtures"; fixtures.mkdir(); (fixtures / "app.txt").write_text("base")
+    first = _task()
+    second_raw = first.snapshot(); second_raw["conversation_id"] = "conv_dev_002"
+    second = ConversationTaskSpec.from_dict(second_raw)
+    calls = []
+
+    def factory(workspace):
+        calls.append(workspace)
+        return _Session(workspace)
+
+    runner = ConversationRunner(factory, tmp_path / "out", fixtures)
+    original_run_task = runner.run_task
+
+    def interrupt_on_second(task, workspace):
+        if task.conversation_id == second.conversation_id:
+            raise RuntimeError("simulated interruption")
+        return original_run_task(task, workspace)
+
+    runner.run_task = interrupt_on_second  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="simulated interruption"):
+        runner.run_suite([first, second], tmp_path / "work")
+
+    manifest = json.loads((tmp_path / "out" / "conversation_run_manifest.json").read_text())
+    assert manifest["completed_conversation_ids"] == [first.conversation_id]
+
+    resumed = ConversationRunner(factory, tmp_path / "out", fixtures)
+    results = resumed.run_suite([first, second], tmp_path / "work", resume=True)
+    assert [result.success for result in results] == [True, True]
+    assert len(calls) == 2
+
+
+def test_resume_bootstraps_from_valid_summary_when_legacy_run_has_no_manifest(tmp_path):
+    fixtures = tmp_path / "fixtures"; fixtures.mkdir(); (fixtures / "app.txt").write_text("base")
+    calls = []
+
+    def factory(workspace):
+        calls.append(workspace)
+        return _Session(workspace)
+
+    task = _task()
+    runner = ConversationRunner(factory, tmp_path / "out", fixtures)
+    runner.run_task(task, tmp_path / "work" / task.conversation_id)
+    assert not (tmp_path / "out" / "conversation_run_manifest.json").exists()
+
+    results = ConversationRunner(factory, tmp_path / "out", fixtures).run_suite([task], tmp_path / "work", resume=True)
+    assert results[0].success is True
+    assert len(calls) == 1
+
+
 def test_metrics_keep_explicit_numerators_and_partial_completion_depth(tmp_path):
     fixtures = tmp_path / "fixtures"; fixtures.mkdir(); (fixtures / "app.txt").write_text("base")
     result = ConversationRunner(lambda workspace: _Session(workspace, forget=True), tmp_path / "out", fixtures).run_task(_task(), tmp_path / "work")
