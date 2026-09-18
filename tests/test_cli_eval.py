@@ -144,6 +144,20 @@ def test_eval_loads_complex_code_tasks(monkeypatch):
     assert task.metadata["complexity_profile"]["dimensions"] == {"compatibility": 3}
 
 
+def test_eval_conversation_resolves_profile_before_running(monkeypatch, tmp_path):
+    monkeypatch.setattr("coder_agent.eval.benchmarks.conversation.loader.load_conversation_tasks", lambda path: [])
+    result = CliRunner().invoke(
+        cli,
+        [
+            "eval", "--benchmark", "conversation", "--task-dir", str(tmp_path),
+            "--preset", "C3", "--llm-profile", "glm_5", "--output", str(tmp_path / "out"),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "ConversationBench completed=0/0" in result.output
+
+
 def test_eval_filters_compare_tasks_by_task_id(monkeypatch):
     captured = {}
 

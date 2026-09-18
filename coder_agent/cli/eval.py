@@ -3,7 +3,7 @@ from pathlib import Path
 
 import click
 
-from coder_agent.config import cfg
+from coder_agent.config import cfg, resolve_llm_profile
 from coder_agent.core.agent import Agent
 from coder_agent.core.session import AgentSession
 from coder_agent.eval.runner import EvalRunner, TaskSpec
