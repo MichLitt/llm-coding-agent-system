@@ -21,9 +21,16 @@ def workspace_python_executable(workspace: Path) -> Path:
     return Path(sys.executable)
 
 
-def workspace_command_env(workspace: Path) -> dict[str, str]:
+def workspace_command_env(workspace: Path, *, scrub_secrets: bool | None = None) -> dict[str, str]:
+    # load_dotenv puts provider keys from .env into os.environ; without
+    # scrubbing, any Agent command (e.g. an injected `env`) could read them.
+    from coder_agent.config import cfg
+    from coder_agent.tools.policy import scrub_secret_env
+
     workspace = Path(workspace).resolve()
     env = dict(os.environ)
+    if cfg.tools.scrub_secret_env if scrub_secrets is None else scrub_secrets:
+        env = scrub_secret_env(env)
     env["UV_CACHE_DIR"] = str(workspace / ".uv-cache")
     python_exe = workspace_python_executable(workspace)
     venv_root = python_exe.parent.parent

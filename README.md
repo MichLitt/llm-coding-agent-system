@@ -173,6 +173,30 @@ tools:
 Remote transports, OAuth, automatic server discovery, and automatic
 installation are intentionally unsupported in the v0.8.0 scope.
 
+### Tool-call policy
+
+Every tool call can be checked before it runs (`coder_agent/tools/policy.py`).
+`tools.policy_mode` selects the policy:
+
+- `legacy` (current default): only the substring denylist.
+- `workspace-write`: structural shell analysis (privilege escalation,
+  pipe-to-interpreter, writes or deletes outside the workspace, secret files
+  and variables, network egress, opaque constructs such as `$(…)`, and paths
+  a task protects).
+- `read-only`: also blocks edits.
+
+Without an approver, calls that would need one are denied, so runs fail
+closed. Output from `knowledge_retrieval` and MCP tools is marked as
+untrusted, and after it appears, network and inline-code calls escalate.
+`tools.scrub_secret_env` (default on) removes API keys and tokens from the
+environment of Agent shell commands. Override the mode per run with
+`--experiment-config '{"policy_mode":"workspace-write"}'` or
+`CODER_TOOL_POLICY`.
+
+`uv run python -m coder_agent.eval.security_bench` runs the deterministic
+AgentSecBench L1 red-team set. Results and limits are in
+[`IMPROVEMENT_REPORT_v0.8.0-tool-policy.md`](./report/IMPROVEMENT_REPORT_v0.8.0-tool-policy.md).
+
 For a controlled evaluation, set `rag_index_id` in the run-scoped experiment
 configuration. It locks retrieval to that index even if the model supplies a
 different index name:

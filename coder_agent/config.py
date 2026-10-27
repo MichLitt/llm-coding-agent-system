@@ -112,6 +112,11 @@ class ToolsConfig:
     ))
     # Empty by default: MCP is an explicit local integration, never auto-discovered.
     mcp_servers: list[dict] = field(default_factory=lambda: _Y.get("tools", {}).get("mcp_servers", []))
+    # Tool-call permission policy: legacy | workspace-write | read-only (tools/policy.py).
+    # A run can override it with the experiment config key "policy_mode".
+    policy_mode: str = os.environ.get("CODER_TOOL_POLICY", _Y.get("tools", {}).get("policy_mode", "legacy"))
+    # Strip secret-named variables (API keys, tokens) from Agent shell commands.
+    scrub_secret_env: bool = bool(_Y.get("tools", {}).get("scrub_secret_env", True))
 
 
 @dataclass

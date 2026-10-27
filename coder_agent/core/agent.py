@@ -2,6 +2,7 @@
 
 import asyncio
 import dataclasses
+import functools
 import sys
 import uuid
 from threading import Event
@@ -37,6 +38,7 @@ from coder_agent.memory.run_state import RunStateStore, current_git_commit
 from coder_agent.memory.trajectory import TrajectoryStore
 from coder_agent.tools.base import Tool
 from coder_agent.tools.execute import execute_tools
+from coder_agent.tools.policy import ToolPolicy
 from coder_agent.tools.mcp import MCPServerConfig, MCPStdioClient, discover_mcp_tools
 
 
@@ -73,6 +75,11 @@ class Agent:
         self._experiment_config = dict(runtime_config or {})
         self.workspace = Path(workspace or cfg.agent.workspace).resolve()
         self.verbose = verbose
+        self.tool_policy = ToolPolicy(
+            str(self._experiment_config.get("policy_mode", cfg.tools.policy_mode)),
+            self.workspace,
+            legacy_blocked_patterns=cfg.tools.blocked_commands,
+        )
         self.client = client
         self.memory = memory
         self.trajectory_store = trajectory_store
@@ -322,6 +329,9 @@ class Agent:
         resume_state: dict[str, Any] | None = None,
         cancel_event: Event | None = None,
     ) -> TurnResult:
+        # Taint is per run; it is re-derived from the history, so an exact
+        # resume keeps the taint of untrusted content read before the crash.
+        self.tool_policy.reset_run(history=lambda: self.history.messages)
         result = await run_agent_loop(
             self,
             user_input,
@@ -333,7 +343,11 @@ class Agent:
             enforce_stop_verification=enforce_stop_verification,
             auto_complete_on_verification=auto_complete_on_verification,
             max_steps=max_steps,
-            execute_tools_fn=execute_tools,
+            execute_tools_fn=(
+                functools.partial(execute_tools, policy=self.tool_policy)
+                if self.tool_policy.enforcing
+                else execute_tools
+            ),
             run_id=run_id,
             run_state_store=self.run_state_store,
             resume_state=resume_state if resume else None,

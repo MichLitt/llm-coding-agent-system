@@ -59,6 +59,13 @@ tools:
   # timeout_seconds, and env_allowlist.  Secrets are forwarded only when their
   # environment-variable names are listed in env_allowlist.
   mcp_servers: []
+  # Tool-call permission policy (coder_agent/tools/policy.py). "legacy" keeps the
+  # substring denylist below as the only check; "workspace-write" and
+  # "read-only" enforce structural rules and fail closed without an approver.
+  policy_mode: legacy
+  # Remove API keys, tokens and other secret-named variables from the
+  # environment of Agent shell commands. Independent of policy_mode.
+  scrub_secret_env: true
   blocked_commands:
     - "rm -rf /"
     - "sudo"
