@@ -46,6 +46,12 @@ class RunRecordModel(BaseModel):
     config_json: dict[str, Any] | str | None = None
     created_at: float
     wall_duration_ms: int = 0
+    # Provider-reported usage; None when not reported (see token_usage_status).
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    llm_calls: int | None = None
+    token_usage_status: str | None = None
+    estimated_cost_usd: float | None = None
 
 
 class RunListResponse(BaseModel):

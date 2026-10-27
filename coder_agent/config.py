@@ -164,6 +164,26 @@ class Config:
 # Named LLM profile system
 # ---------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class ModelPricing:
+    """USD price per million tokens for one profile; used only for cost estimates."""
+
+    input_usd_per_mtok: float
+    output_usd_per_mtok: float
+    cached_input_usd_per_mtok: float | None = None
+
+    @classmethod
+    def from_dict(cls, raw: dict | None) -> "ModelPricing | None":
+        if not raw:
+            return None
+        cached = raw.get("cached_input_usd_per_mtok")
+        return cls(
+            input_usd_per_mtok=float(raw["input_usd_per_mtok"]),
+            output_usd_per_mtok=float(raw["output_usd_per_mtok"]),
+            cached_input_usd_per_mtok=float(cached) if cached is not None else None,
+        )
+
+
 @dataclass
 class LLMProfile:
     """Resolved, immutable LLM backend configuration for a single provider.
@@ -177,6 +197,7 @@ class LLMProfile:
     model: str
     api_key: str
     base_url: str | None
+    pricing: ModelPricing | None = None
 
 
 def resolve_llm_profile(name: str | None = None) -> "LLMProfile":
@@ -229,6 +250,7 @@ def resolve_llm_profile(name: str | None = None) -> "LLMProfile":
         model=raw["model"],
         api_key=api_key,
         base_url=base_url,
+        pricing=ModelPricing.from_dict(raw.get("pricing")),
     )
 
 

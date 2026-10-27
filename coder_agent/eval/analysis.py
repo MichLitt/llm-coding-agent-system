@@ -7,6 +7,7 @@ from pathlib import Path
 from coder_agent.config import cfg
 from coder_agent.eval.analysis_llm import LLMTaxonomyResult, failure_taxonomy_llm
 from coder_agent.eval.analysis_stats import TrajectoryStats, compute_statistics
+from coder_agent.eval.metrics import format_avg_tokens
 from coder_agent.eval.analysis_taxonomy import (
     LAYERED_FAILURE_CATEGORIES,
     TaxonomyResult,
@@ -135,7 +136,7 @@ class TrajectoryAnalyzer:
         print(f"Avg steps (all):     {stats.avg_steps_all:.1f}")
         print(f"Avg steps (success): {stats.avg_steps_success:.1f}")
         print(f"Avg steps (failed):  {stats.avg_steps_failed:.1f}")
-        print(f"Avg tokens:          {stats.avg_tokens:.0f}")
+        print(f"Avg tokens:          {format_avg_tokens(stats.avg_tokens)}")
         print(f"Avg duration:        {stats.avg_duration:.1f}s")
         print(f"Retry rate:          {stats.retry_rate:.1%}")
         print(f"Correction success:  {stats.correction_success_rate:.1%}")
@@ -181,7 +182,7 @@ class TrajectoryAnalyzer:
             ("Avg Steps", lambda s: f"{s.avg_steps_all:.1f}"),
             ("Retry Rate", lambda s: f"{s.retry_rate:.1%}"),
             ("Correction%", lambda s: f"{s.correction_success_rate:.1%}"),
-            ("Avg Tokens", lambda s: f"{s.avg_tokens:.0f}"),
+            ("Avg Tokens", lambda s: format_avg_tokens(s.avg_tokens)),
         ]
 
         for name, formatter in metrics:

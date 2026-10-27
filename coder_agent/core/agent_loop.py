@@ -13,6 +13,13 @@ from coder_agent.core.agent_run_context import (
     start_trajectory,
 )
 from coder_agent.core.context import compress_observation
+from coder_agent.core.usage import (
+    UsageTotals,
+    client_pricing,
+    client_usage_snapshot,
+    run_usage,
+    usage_since,
+)
 from coder_agent.core.agent_tool_batch import (
     apply_retry_guidance,
     handle_tool_messages,
@@ -78,6 +85,11 @@ class LoopState:
     ad_hoc_install_count: int = 0
     task_metadata: dict[str, Any] = field(default_factory=dict)
     resume_summary: str = ""
+    # Usage from run segments before a resume, plus the live client snapshot
+    # taken when this segment started (see coder_agent.core.usage).
+    prior_usage: UsageTotals = field(default_factory=UsageTotals)
+    usage_client: Any = None
+    usage_start: UsageTotals | None = None
 
 
 @dataclass
@@ -190,6 +202,7 @@ def _serialize_loop_state(state: LoopState) -> dict[str, Any]:
         "db_records_written": state.db_records_written,
         "ad_hoc_install_count": state.ad_hoc_install_count,
         "resume_summary": state.resume_summary,
+        "usage": run_usage(state).to_state(),
     }
 
 
@@ -229,6 +242,7 @@ def _restore_loop_state(resume_state: dict[str, Any] | None) -> LoopState:
     state.db_records_written = int(resume_state.get("db_records_written", 0))
     state.ad_hoc_install_count = int(resume_state.get("ad_hoc_install_count", 0))
     state.resume_summary = str(resume_state.get("resume_summary", "") or "")
+    state.prior_usage = UsageTotals.from_state(resume_state.get("usage"))
     return state
 
 
@@ -253,6 +267,7 @@ def _try_report_to_evalops(
             None if total_tool_calls == 0 else state.successful_tool_calls / total_tool_calls
         )
         wall_ms = int((time.time() - state.start_time) * 1000)
+        usage = result.usage or run_usage(state).to_report(client_pricing(getattr(agent, "client", None)))
 
         report = AgentRunReport(
             run_id=run_id,
@@ -261,7 +276,12 @@ def _try_report_to_evalops(
             total_steps=state.steps,
             total_tool_calls=total_tool_calls,
             tool_success_rate=tool_success_rate,
-            total_tokens=agent.history.total_tokens,
+            total_tokens=usage.get("total_tokens"),
+            input_tokens=usage.get("input_tokens"),
+            output_tokens=usage.get("output_tokens"),
+            llm_call_count=usage.get("llm_calls"),
+            token_usage_status=usage.get("token_usage_status"),
+            estimated_cost_usd=usage.get("estimated_cost_usd"),
             wall_duration_ms=wall_ms,
             termination_reason=result.termination_reason,
             preset=getattr(agent, "preset", None),
@@ -278,12 +298,23 @@ def _try_report_to_evalops(
 def _build_run_metrics(agent: Any, state: LoopState) -> RunMetrics:
     total_tool_calls = len(state.all_tool_calls)
     success_rate = None if total_tool_calls == 0 else state.successful_tool_calls / total_tool_calls
+    usage = run_usage(state).to_report(client_pricing(getattr(agent, "client", None)))
     return RunMetrics(
         total_steps=state.steps,
         total_tool_calls=total_tool_calls,
-        total_tokens=agent.history.total_tokens,
+        total_tokens=usage["total_tokens"] or 0,
         tool_success_rate=success_rate,
+        input_tokens=usage["input_tokens"],
+        output_tokens=usage["output_tokens"],
+        llm_calls=usage["llm_calls"],
+        token_usage_status=usage["token_usage_status"],
+        estimated_cost_usd=usage["estimated_cost_usd"],
     )
+
+
+def _step_tokens(agent: Any, step_usage_start: UsageTotals | None) -> int:
+    """Provider-reported tokens billed during one step (0 when unreported)."""
+    return usage_since(getattr(agent, "client", None), step_usage_start).total_tokens or 0
 
 
 def _record_tool_audit(
@@ -503,6 +534,8 @@ async def run_agent_loop(
 ) -> TurnResult:
     state = _restore_loop_state(resume_state)
     state.run_id = run_id
+    state.usage_client = getattr(agent, "client", None)
+    state.usage_start = client_usage_snapshot(state.usage_client)
     state.task_metadata = dict(task_metadata or {})
     token_printer = _TokenPrinter(agent)
     effective_max_steps = max_steps if max_steps is not None else cfg.agent.max_steps
@@ -558,7 +591,7 @@ async def run_agent_loop(
                 return cancelled_result()
             state.steps += 1
             step_start = time.time()
-            tokens_before_step = agent.history.total_tokens
+            step_usage_start = client_usage_snapshot(getattr(agent, "client", None))
             token_printer.reset()
             agent.history.truncate()
             await _maybe_compact_history(agent, state)
@@ -594,7 +627,7 @@ async def run_agent_loop(
                     observation=turn.parse_feedback,
                     tool_call_count=0,
                     had_error=True,
-                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_tokens=_step_tokens(agent, step_usage_start),
                     step_duration_ms=int((time.time() - step_start) * 1000),
                 )
                 continue
@@ -622,7 +655,7 @@ async def run_agent_loop(
                         observation=completion_observation,
                         tool_call_count=0,
                         had_error=not completion_result.success,
-                        step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                        step_tokens=_step_tokens(agent, step_usage_start),
                         step_duration_ms=int((time.time() - step_start) * 1000),
                     )
                     return finalize_result(completion_result)
@@ -636,7 +669,7 @@ async def run_agent_loop(
                     observation=completion_observation or turn.text_content,
                     tool_call_count=0,
                     had_error=False,
-                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_tokens=_step_tokens(agent, step_usage_start),
                     step_duration_ms=int((time.time() - step_start) * 1000),
                 )
                 continue
@@ -658,7 +691,7 @@ async def run_agent_loop(
                     observation=retry_policy_feedback,
                     tool_call_count=len(turn.tool_uses),
                     had_error=True,
-                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_tokens=_step_tokens(agent, step_usage_start),
                     step_duration_ms=int((time.time() - step_start) * 1000),
                 )
                 continue
@@ -681,7 +714,7 @@ async def run_agent_loop(
                     observation="Run cancelled",
                     tool_call_count=len(turn.tool_uses),
                     had_error=True,
-                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_tokens=_step_tokens(agent, step_usage_start),
                     step_duration_ms=int((time.time() - step_start) * 1000),
                 )
                 return cancelled_result()
@@ -731,7 +764,7 @@ async def run_agent_loop(
                     observation=batch.combined_observation or hard_error,
                     tool_call_count=len(turn.tool_uses),
                     had_error=True,
-                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_tokens=_step_tokens(agent, step_usage_start),
                     step_duration_ms=int((time.time() - step_start) * 1000),
                 )
                 return finalize_result(
@@ -790,7 +823,7 @@ async def run_agent_loop(
                     observation=verification_result.content,
                     tool_call_count=len(turn.tool_uses),
                     had_error=False,
-                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_tokens=_step_tokens(agent, step_usage_start),
                     step_duration_ms=int((time.time() - step_start) * 1000),
                 )
                 return finalize_result(verification_result)
@@ -815,7 +848,7 @@ async def run_agent_loop(
                     observation=combined_observation,
                     tool_call_count=len(turn.tool_uses),
                     had_error=True,
-                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_tokens=_step_tokens(agent, step_usage_start),
                     step_duration_ms=int((time.time() - step_start) * 1000),
                 )
                 return finalize_result(
@@ -842,7 +875,7 @@ async def run_agent_loop(
                     observation=retry_message,
                     tool_call_count=len(turn.tool_uses),
                     had_error=True,
-                    step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                    step_tokens=_step_tokens(agent, step_usage_start),
                     step_duration_ms=int((time.time() - step_start) * 1000),
                 )
                 return finalize_result(
@@ -888,7 +921,7 @@ async def run_agent_loop(
                 observation=combined_observation,
                 tool_call_count=len(turn.tool_uses),
                 had_error=batch.saw_nonzero_exit or batch.saw_recoverable_tool_error,
-                step_tokens=max(0, agent.history.total_tokens - tokens_before_step),
+                step_tokens=_step_tokens(agent, step_usage_start),
                 step_duration_ms=int((time.time() - step_start) * 1000),
             )
 

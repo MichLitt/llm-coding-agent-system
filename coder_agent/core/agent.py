@@ -225,11 +225,12 @@ class Agent:
         tool_calls: list[str],
         success: bool,
         retry_steps: int,
-        total_tokens: int,
+        total_tokens: int | None,
         trajectory_id: str | None,
         final_status: str,
         termination_reason: str | None,
         error_details: list[str] | None = None,
+        usage: dict | None = None,
     ) -> TurnResult:
         return TurnResult(
             content=content,
@@ -242,6 +243,7 @@ class Agent:
             final_status=final_status,
             termination_reason=termination_reason,
             error_details=error_details or [],
+            usage=usage,
         )
 
     def _safe_print(self, text: str = "", end: str = "\n") -> None:

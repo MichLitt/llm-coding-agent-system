@@ -18,11 +18,14 @@ class EvalResult:
     retry_steps: int
     termination_reason: str | None = None
     verification_pass_rate: float = 0.0
-    total_tokens: int = 0
+    # Provider-reported input+output tokens; None when the provider reported none.
+    total_tokens: int | None = 0
     duration: float = 0.0
     error_types: list[str] = field(default_factory=list)
     activation_counters: dict = field(default_factory=dict)
     config_label: str = ""
+    # UsageTotals.to_report() for the task run (calls, tokens, status, cost).
+    usage: dict | None = None
 
 
 @dataclass
@@ -39,9 +42,19 @@ class MetricsSummary:
     efficiency_score: float
     retry_cost: float
     avg_steps: float
-    avg_tokens: float
+    # Mean over tasks with provider-reported usage; None when no task reported any.
+    avg_tokens: float | None
     avg_duration: float
     by_difficulty: dict[str, float] = field(default_factory=dict)
+
+
+def _mean_reported_tokens(results: list[EvalResult]) -> float | None:
+    reported = [result.total_tokens for result in results if result.total_tokens is not None]
+    return sum(reported) / len(reported) if reported else None
+
+
+def format_avg_tokens(avg_tokens: float | None) -> str:
+    return "n/a" if avg_tokens is None else f"{avg_tokens:.0f}"
 
 
 def benchmark_pass_rate(results: list[EvalResult]) -> float:
@@ -121,7 +134,7 @@ def compute_metrics(results: list[EvalResult], config_label: str = "") -> Metric
             efficiency_score=0.0,
             retry_cost=0.0,
             avg_steps=0.0,
-            avg_tokens=0.0,
+            avg_tokens=None,
             avg_duration=0.0,
         )
 
@@ -137,7 +150,7 @@ def compute_metrics(results: list[EvalResult], config_label: str = "") -> Metric
         efficiency_score=efficiency_score(results),
         retry_cost=retry_cost(results),
         avg_steps=sum(result.steps_used for result in results) / len(results),
-        avg_tokens=sum(result.total_tokens for result in results) / len(results),
+        avg_tokens=_mean_reported_tokens(results),
         avg_duration=sum(result.duration for result in results) / len(results),
     )
 
@@ -161,5 +174,5 @@ def print_metrics_table(summaries: list[MetricsSummary]) -> None:
             f"{summary.efficiency_score:>11.4f} "
             f"{summary.retry_cost:>10.1%} "
             f"{summary.avg_steps:>9.1f} "
-            f"{summary.avg_tokens:>10.0f}"
+            f"{format_avg_tokens(summary.avg_tokens):>10}"
         )

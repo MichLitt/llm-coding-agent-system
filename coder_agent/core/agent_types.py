@@ -32,12 +32,15 @@ class TurnResult:
     tool_calls: list[str]
     success: bool
     retry_steps: int = 0
-    total_tokens: int = 0
+    # Provider-reported input+output tokens for the run; None when unreported.
+    total_tokens: int | None = 0
     trajectory_id: str | None = None
     final_status: str = "failed"
     termination_reason: str | None = None
     error_details: list[str] = dataclasses.field(default_factory=list)
     extra: dict = field(default_factory=dict)
+    # UsageTotals.to_report() for the run: calls, tokens, status and cost.
+    usage: dict | None = None
 
 
 @dataclass

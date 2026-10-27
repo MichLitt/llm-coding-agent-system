@@ -343,6 +343,7 @@ class EvalRunner:
             termination_reason=getattr(turn_result, "termination_reason", None),
             verification_pass_rate=verification_pass_rate,
             total_tokens=turn_result.total_tokens,
+            usage=getattr(turn_result, "usage", None),
             duration=time.time() - start,
             error_types=error_types,
             activation_counters=dict(getattr(turn_result, "extra", {}) or {}),

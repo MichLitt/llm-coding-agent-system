@@ -12,13 +12,18 @@ class TrajectoryStats:
     avg_steps_all: float
     avg_steps_success: float
     avg_steps_failed: float
-    avg_tokens: float
+    avg_tokens: float | None  # None when no trajectory has provider-reported usage
     avg_duration: float
     tool_usage: dict[str, int]
     retry_rate: float
     correction_success_rate: float
     termination_reasons: dict[str, int] = field(default_factory=dict)
     by_difficulty: dict[str, dict] = field(default_factory=dict)
+
+
+def _mean_reported_tokens(trajs: list[dict]) -> float | None:
+    reported = [t["total_tokens"] for t in trajs if t.get("total_tokens") is not None]
+    return sum(reported) / len(reported) if reported else None
 
 
 def correction_success_rate(trajs: list[dict]) -> float:
@@ -46,7 +51,7 @@ def compute_statistics(experiment_id: str, trajs: list[dict]) -> TrajectoryStats
             avg_steps_all=0,
             avg_steps_success=0,
             avg_steps_failed=0,
-            avg_tokens=0,
+            avg_tokens=None,
             avg_duration=0,
             tool_usage={},
             retry_rate=0,
@@ -89,7 +94,7 @@ def compute_statistics(experiment_id: str, trajs: list[dict]) -> TrajectoryStats
         avg_steps_all=avg_steps(trajs),
         avg_steps_success=avg_steps(success),
         avg_steps_failed=avg_steps(failed + timeout),
-        avg_tokens=sum(t.get("total_tokens", 0) for t in trajs) / len(trajs),
+        avg_tokens=_mean_reported_tokens(trajs),
         avg_duration=sum(t.get("duration", 0) for t in trajs) / len(trajs),
         tool_usage=dict(tool_counter.most_common()),
         retry_rate=retry_steps / total_steps if total_steps else 0.0,

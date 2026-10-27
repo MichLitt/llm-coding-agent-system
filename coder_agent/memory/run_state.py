@@ -69,6 +69,18 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 CREATE INDEX IF NOT EXISTS idx_tool_calls_run_id ON tool_calls(run_id, step_index);
 """
 
+# Additive columns applied to both new and pre-existing databases. All are
+# nullable: NULL means "not recorded", which old rows and runs whose provider
+# reported no usage both are. runs.total_tokens keeps its NOT NULL legacy
+# contract and is 0 in that case; token_usage_status disambiguates.
+_RUN_USAGE_COLUMNS: dict[str, str] = {
+    "input_tokens": "INTEGER",
+    "output_tokens": "INTEGER",
+    "llm_calls": "INTEGER",
+    "token_usage_status": "TEXT",
+    "estimated_cost_usd": "REAL",
+}
+
 
 def _truncate(text: Any, limit: int) -> str:
     value = str(text or "")
@@ -100,6 +112,11 @@ class RunMetrics:
     total_tool_calls: int
     total_tokens: int
     tool_success_rate: float | None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    llm_calls: int | None = None
+    token_usage_status: str | None = None
+    estimated_cost_usd: float | None = None
 
 
 class RunStateStore:
@@ -116,6 +133,10 @@ class RunStateStore:
     def init_db(self) -> None:
         with self._lock:
             self._conn.executescript(_SCHEMA)
+            existing = {row["name"] for row in self._conn.execute("PRAGMA table_info(runs)")}
+            for column, column_type in _RUN_USAGE_COLUMNS.items():
+                if column not in existing:
+                    self._conn.execute(f"ALTER TABLE runs ADD COLUMN {column} {column_type}")
             self._conn.commit()
 
     def close(self) -> None:
@@ -196,7 +217,12 @@ class RunStateStore:
                     total_tokens = ?,
                     tool_success_rate = ?,
                     termination_reason = ?,
-                    error_summary = ?
+                    error_summary = ?,
+                    input_tokens = ?,
+                    output_tokens = ?,
+                    llm_calls = ?,
+                    token_usage_status = ?,
+                    estimated_cost_usd = ?
                 WHERE run_id = ?
                 """,
                 (
@@ -208,6 +234,11 @@ class RunStateStore:
                     metrics.tool_success_rate,
                     termination_reason,
                     _truncate(error_summary, 1000) if error_summary else None,
+                    metrics.input_tokens,
+                    metrics.output_tokens,
+                    metrics.llm_calls,
+                    metrics.token_usage_status,
+                    metrics.estimated_cost_usd,
                     run_id,
                 ),
             )

@@ -10,7 +10,11 @@ Both backends normalise responses to the same dict:
         "content":      [{"type": "text", "text": "..."}],
         "tool_uses":    [{"id": "...", "name": "...", "input": {...}}],
         "parse_errors": ["..."],
+        "usage":        {"input_tokens": ..., "output_tokens": ..., "cached_input_tokens": ...} | None,
     }
+
+``usage`` is None when the provider did not report token usage; it is never
+estimated client-side.
 
 Switching models:
     # .env for M2.7 (default)
@@ -40,6 +44,12 @@ import openai
 from openai import AsyncOpenAI
 
 from coder_agent.config import LLMProfile, resolve_llm_profile
+from coder_agent.core.usage import (
+    LLMUsage,
+    UsageTotals,
+    usage_from_anthropic,
+    usage_from_openai,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +169,7 @@ class _OpenAIBackend:
 
         text_chunks: list[str] = []
         tc_accum: dict[int, dict[str, str]] = defaultdict(lambda: {"id": "", "name": "", "arguments": ""})
+        usage: LLMUsage | None = None
 
         client = self._client_for_current_loop()
 
@@ -179,7 +190,18 @@ class _OpenAIBackend:
                 }
                 if seed is not None:
                     request["seed"] = seed
-                stream = await client.chat.completions.create(**request)
+                if getattr(self, "_stream_include_usage", True):
+                    request["stream_options"] = {"include_usage": True}
+                try:
+                    stream = await client.chat.completions.create(**request)
+                except openai.BadRequestError:
+                    if "stream_options" not in request:
+                        raise
+                    # Some OpenAI-compatible providers reject stream_options.
+                    # Retry once without it; usage is still read if they emit it.
+                    request.pop("stream_options")
+                    stream = await client.chat.completions.create(**request)
+                    self._stream_include_usage = False
                 break
             except (openai.APIConnectionError, openai.APITimeoutError):
                 if attempt == _MAX_RETRIES:
@@ -188,6 +210,10 @@ class _OpenAIBackend:
         request_timeout = getattr(self, "_request_timeout_seconds", 180.0)
         async with asyncio.timeout(request_timeout):
             async for chunk in stream:
+                # The usage chunk usually has no choices, so read it first.
+                chunk_usage = usage_from_openai(getattr(chunk, "usage", None))
+                if chunk_usage is not None:
+                    usage = chunk_usage
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if delta is None:
                     continue
@@ -219,7 +245,12 @@ class _OpenAIBackend:
 
         full_text = "".join(text_chunks)
         content = [{"type": "text", "text": full_text}] if full_text else []
-        return {"content": content, "tool_uses": tool_uses, "parse_errors": parse_errors}
+        return {
+            "content": content,
+            "tool_uses": tool_uses,
+            "parse_errors": parse_errors,
+            "usage": usage.to_dict() if usage is not None else None,
+        }
 
     async def aclose(self) -> None:
         if self._client is None:
@@ -418,7 +449,7 @@ class _AnthropicBackend:
                     raise
 
         if final_message is None:
-            return {"content": [], "tool_uses": [], "parse_errors": ["No response received"]}
+            return {"content": [], "tool_uses": [], "parse_errors": ["No response received"], "usage": None}
 
         text_parts: list[str] = []
         tool_uses: list[dict[str, Any]] = []
@@ -435,7 +466,13 @@ class _AnthropicBackend:
 
         full_text = "".join(text_parts)
         content = [{"type": "text", "text": full_text}] if full_text else []
-        return {"content": content, "tool_uses": tool_uses, "parse_errors": []}
+        usage = usage_from_anthropic(getattr(final_message, "usage", None))
+        return {
+            "content": content,
+            "tool_uses": tool_uses,
+            "parse_errors": [],
+            "usage": usage.to_dict() if usage is not None else None,
+        }
 
     async def aclose(self) -> None:
         if self._client is None:
@@ -463,10 +500,14 @@ class LLMClient:
 
     The chat() interface is identical regardless of backend, so callers
     (Agent, AgentSession) are unaffected by the provider switch.
+
+    ``usage`` accumulates provider-reported usage over every completed call,
+    including context-compaction and decomposer calls made through this client.
     """
 
     def __init__(self, profile: LLMProfile | None = None) -> None:
         self.profile: LLMProfile = profile if profile is not None else resolve_llm_profile()
+        self.usage = UsageTotals()
         if self.profile.transport == "anthropic":
             self._backend: _OpenAIBackend | _AnthropicBackend = _AnthropicBackend(
                 api_key=self.profile.api_key,
@@ -489,7 +530,7 @@ class LLMClient:
         seed: int | None = None,
         on_token: Any | None = None,
     ) -> dict[str, Any]:
-        return await self._backend.chat(
+        response = await self._backend.chat(
             messages=messages,
             system=system,
             tools=tools,
@@ -499,6 +540,8 @@ class LLMClient:
             seed=seed,
             on_token=on_token,
         )
+        self.usage.record(LLMUsage.from_dict(response.get("usage")))
+        return response
 
     async def aclose(self) -> None:
         await self._backend.aclose()

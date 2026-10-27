@@ -19,6 +19,11 @@ def _sha256(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
 
 
+def _reported_tokens(result: Any) -> int | None:
+    tokens = getattr(result, "total_tokens", None)
+    return int(tokens) if tokens is not None else None
+
+
 def _tree_sha256(root: Path) -> str:
     digest = hashlib.sha256()
     for path in sorted(item for item in root.rglob("*") if item.is_file()):
@@ -39,7 +44,7 @@ class ConversationTurnResult:
     constraint_results: dict[str, bool]
     steps: int
     tool_calls: int
-    tokens: int
+    tokens: int | None  # provider-reported; None when unreported
     duration_seconds: float
     agent_final_status: str
     termination_reason: str | None
@@ -123,7 +128,7 @@ class ConversationRunner:
                     SCHEMA_VERSION, task.conversation_id, turn.turn_id, _sha256(turn.user_message), before,
                     _tree_sha256(workspace), {"passed": phase_passed, "total": phase_total}, constraints,
                     int(getattr(result, "steps", 0)), len(getattr(result, "tool_calls", []) or []),
-                    int(getattr(result, "total_tokens", 0)), time.time() - start,
+                    _reported_tokens(result), time.time() - start,
                     str(getattr(result, "final_status", "failed")), getattr(result, "termination_reason", None), categories,
                 )
                 turn_results.append(turn_result)

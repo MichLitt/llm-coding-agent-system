@@ -52,7 +52,7 @@ class Trajectory:
     final_status: str = "running"        # running / success / failed / timeout
     termination_reason: str | None = None
     partial_score: float = 0.0
-    total_tokens: int = 0
+    total_tokens: int | None = 0  # provider-reported; None when unreported
     duration: float = 0.0
     git_commit: str = field(default_factory=_git_commit)
     random_seed: int = 42
@@ -101,7 +101,7 @@ class TrajectoryStore:
         final_status: str,
         termination_reason: str | None = None,
         partial_score: float = 0.0,
-        total_tokens: int = 0,
+        total_tokens: int | None = 0,
         duration: float | None = None,
     ) -> None:
         """Finalise trajectory and flush to JSONL file."""

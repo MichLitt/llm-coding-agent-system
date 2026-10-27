@@ -20,7 +20,7 @@ import datetime
 from dataclasses import dataclass
 from pathlib import Path
 
-from coder_agent.eval.metrics import MetricsSummary
+from coder_agent.eval.metrics import MetricsSummary, format_avg_tokens
 from coder_agent.eval.runner import ComparisonReport, EvalRunner, TaskSpec
 
 
@@ -260,7 +260,7 @@ def write_ablation_report(
             f"| {s.efficiency_score:.4f} "
             f"| {s.retry_cost:.1%} "
             f"| {s.avg_steps:.1f} "
-            f"| {s.avg_tokens:.0f} |"
+            f"| {format_avg_tokens(s.avg_tokens)} |"
         )
 
     lines += [

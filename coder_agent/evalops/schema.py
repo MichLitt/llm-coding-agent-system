@@ -17,7 +17,14 @@ class AgentRunReport:
     total_steps: int = 0
     total_tool_calls: int = 0
     tool_success_rate: float | None = None
-    total_tokens: int = 0
+    # Provider-reported input+output tokens; None when the provider reported
+    # no usage for any call in the run (never a client-side estimate).
+    total_tokens: int | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    llm_call_count: int | None = None
+    token_usage_status: str | None = None  # "provider" | "partial" | "unavailable"
+    estimated_cost_usd: float | None = None
     wall_duration_ms: int = 0
     termination_reason: str | None = None
     git_commit: str | None = None

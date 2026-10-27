@@ -368,6 +368,40 @@ llm:
 
 Then add the corresponding vars to `.env` and use `--llm-profile my_provider`.
 
+### Token usage and cost
+
+Token counts are provider-reported usage, never client-side estimates.
+OpenAI-compatible profiles request `stream_options.include_usage` (falling
+back once without it if a provider rejects the option); Anthropic-compatible
+profiles read the final message usage. Every completed call through the
+client is counted, including context-compaction summaries.
+
+Each run records `llm_calls`, `input_tokens`, `output_tokens`,
+`cached_input_tokens`, `total_tokens`, `token_usage_status` and
+`estimated_cost_usd` in the result `usage` field, the run-state store, the
+step checkpoints, and the EvalOps `agent/v1` report. `token_usage_status` is
+`provider` when every call reported usage, `partial` when only some did
+(totals are then lower bounds), and `unavailable` when none did, in which case
+token totals and cost are `null`. Resumed runs carry usage recorded before the
+interruption.
+
+`estimated_cost_usd` is filled only when the profile declares prices in USD per
+million tokens:
+
+```yaml
+    my_provider:
+      # ...
+      pricing:
+        input_usd_per_mtok: 0.60
+        output_usd_per_mtok: 2.20
+        cached_input_usd_per_mtok: 0.11   # optional; defaults to the input price
+```
+
+Token figures in reports produced before this accounting existed (including
+the G3 evidence and the v0.8 baseline snapshots) are context-size estimates,
+not usage, and must not be cited as token or cost results. See
+[`IMPROVEMENT_REPORT_v0.8.0-token-usage.md`](./report/IMPROVEMENT_REPORT_v0.8.0-token-usage.md).
+
 ## Evaluation and Re-Baselining
 
 The next execution plan is

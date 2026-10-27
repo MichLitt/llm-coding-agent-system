@@ -4,6 +4,7 @@ from typing import Any
 
 from coder_agent.config import cfg
 from coder_agent.core.agent_types import TurnResult, VerificationHook, VerificationResult
+from coder_agent.core.usage import client_pricing, run_usage
 from coder_agent.memory.trajectory import Step
 
 _OBSERVATION_MAX_CHARS = 500
@@ -66,7 +67,7 @@ def finish_trajectory(
         final_status=final_status,
         termination_reason=termination_reason,
         partial_score=partial_score,
-        total_tokens=agent.history.total_tokens,
+        total_tokens=run_usage(state).total_tokens,
         duration=time.time() - state.start_time,
     )
 
@@ -92,17 +93,19 @@ def finalize_turn(
         termination_reason=termination_reason,
         partial_score=partial_score,
     )
+    usage = run_usage(state).to_report(client_pricing(getattr(agent, "client", None)))
     result = agent._make_result(
         content=content,
         steps=state.steps,
         tool_calls=state.all_tool_calls,
         success=success,
         retry_steps=state.retry_steps,
-        total_tokens=agent.history.total_tokens,
+        total_tokens=usage["total_tokens"],
         trajectory_id=state.traj_id,
         final_status=final_status,
         termination_reason=termination_reason,
         error_details=error_details or [],
+        usage=usage,
     )
     return result
 

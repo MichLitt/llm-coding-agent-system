@@ -257,6 +257,6 @@ def finalize_trajectory(
         final_status=final_status,
         termination_reason=getattr(turn_result, "termination_reason", None),
         partial_score=partial_score,
-        total_tokens=getattr(turn_result, "total_tokens", 0),
+        total_tokens=getattr(turn_result, "total_tokens", None),
         duration=duration,
     )
