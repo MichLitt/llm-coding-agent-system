@@ -12,6 +12,14 @@ from coder_agent.core.agent_run_context import (
     seed_run_context,
     start_trajectory,
 )
+from coder_agent.core.checkpoint import (
+    decode_history_snapshot,
+    encode_history_snapshot,
+    history_is_api_consistent,
+    restore_history,
+    system_prompt_sha256,
+    workspace_fingerprint,
+)
 from coder_agent.core.context import compress_observation
 from coder_agent.core.usage import (
     UsageTotals,
@@ -90,6 +98,7 @@ class LoopState:
     prior_usage: UsageTotals = field(default_factory=UsageTotals)
     usage_client: Any = None
     usage_start: UsageTotals | None = None
+    resume_mode: str | None = None
 
 
 @dataclass
@@ -344,6 +353,7 @@ def _record_tool_audit(
 
 
 def _record_step_checkpoint(
+    agent: Any,
     store: RunStateStore | None,
     run_id: str | None,
     state: LoopState,
@@ -354,9 +364,19 @@ def _record_step_checkpoint(
     had_error: bool,
     step_tokens: int,
     step_duration_ms: int,
+    snapshot: bool = True,
 ) -> None:
+    """Persist a step checkpoint.
+
+    Normal step ends are API-consistent boundaries, so they carry an
+    exact-resume history snapshot and workspace fingerprint. The exception
+    path passes ``snapshot=False``: its history may hold an unanswered tool
+    call, and resume then restores the previous boundary instead.
+    """
     if store is None or not run_id:
         return
+    history_snapshot = encode_history_snapshot(agent.history, agent.system) if snapshot else None
+    fingerprint = workspace_fingerprint(agent.workspace) if snapshot else None
     store.record_step(
         run_id,
         max(0, state.steps - 1),
@@ -367,7 +387,66 @@ def _record_step_checkpoint(
         step_tokens=step_tokens,
         step_duration_ms=step_duration_ms,
         loop_state=_serialize_loop_state(state),
+        history_snapshot=history_snapshot,
+        workspace_fingerprint=fingerprint,
     )
+
+
+RESUME_MODE_EXACT = "exact"
+RESUME_MODE_EXACT_DRIFT = "exact_workspace_drift"
+RESUME_MODE_RESTART = "restart"
+RESUME_MODE_RESTART_DRIFT = "restart_workspace_drift"
+RESUME_MODE_SUMMARY = "summary"
+_DRIFT_MODES = (RESUME_MODE_EXACT_DRIFT, RESUME_MODE_RESTART_DRIFT)
+
+_WORKSPACE_DRIFT_NOTICE = (
+    "[Resume notice] This run was interrupted after its last checkpoint, and the workspace "
+    "has changed since then or could not be verified (the interrupted step may have partly "
+    "executed). Re-inspect the relevant files before relying on earlier observations."
+)
+
+
+def _apply_resume(
+    agent: Any,
+    state: LoopState,
+    resume_state: dict[str, Any],
+    run_state_store: RunStateStore | None,
+    run_id: str | None,
+) -> str:
+    """Pick and apply a resume mode; exact modes restore the message history.
+
+    - exact[_workspace_drift]: a usable step snapshot exists; history is
+      restored and the workspace is compared with that checkpoint.
+    - restart[_workspace_drift]: no step was checkpointed, so the task restarts
+      from its original message; the workspace is compared with its state when
+      the run first started (a never-started run has nothing to compare).
+    - summary: legacy checkpoints without snapshots, a changed system prompt,
+      or the C5 decomposer (its goal state is not checkpointed).
+    """
+    snapshot = decode_history_snapshot(resume_state.get("history_snapshot"))
+    if snapshot is None and not int(resume_state.get("steps", 0) or 0):
+        if not resume_state.get("run_was_started"):
+            return RESUME_MODE_RESTART
+        start_fingerprint = resume_state.get("start_workspace_fingerprint")
+        if start_fingerprint is None or workspace_fingerprint(agent.workspace) != start_fingerprint:
+            return RESUME_MODE_RESTART_DRIFT
+        return RESUME_MODE_RESTART
+    if (
+        snapshot is None
+        or agent.decomposer is not None
+        or snapshot.get("system_sha256") != system_prompt_sha256(agent.system)
+        or not history_is_api_consistent(snapshot.get("messages", []))
+    ):
+        return RESUME_MODE_SUMMARY
+    restore_history(agent.history, snapshot)
+    state.resume_summary = ""
+    if run_state_store is not None and run_id:
+        # Steps recorded after the restored boundary are superseded.
+        run_state_store.discard_steps_from(run_id, state.steps)
+    checkpoint_fingerprint = resume_state.get("workspace_fingerprint")
+    if checkpoint_fingerprint is None or workspace_fingerprint(agent.workspace) != checkpoint_fingerprint:
+        return RESUME_MODE_EXACT_DRIFT
+    return RESUME_MODE_EXACT
 
 
 def _remove_messages_with_prefix(history: Any, prefix: str) -> None:
@@ -551,6 +630,8 @@ async def run_agent_loop(
                 _build_run_metrics(agent, state),
             )
             result.extra["run_id"] = run_id
+        if state.resume_mode is not None:
+            result.extra["resume_mode"] = state.resume_mode
         if run_id:
             _try_report_to_evalops(run_id, result, state, agent)
         return _attach_activation_counters(result, state)
@@ -559,11 +640,18 @@ async def run_agent_loop(
     if resume_state:
         _restore_task_tool_state(agent, state)
     if run_state_store is not None and run_id:
-        run_state_store.start_run(run_id)
-    await seed_run_context(agent, state, user_input)
-    if state.resume_summary:
-        state.exception_stage = "history.add_resume_summary"
-        await agent.history.add_message("user", f"[Resume context]\n{state.resume_summary}")
+        # A fresh run records the drift baseline for a resume before its first checkpoint.
+        start_fingerprint = None if resume_state else workspace_fingerprint(agent.workspace)
+        run_state_store.start_run(run_id, start_workspace_fingerprint=start_fingerprint)
+    if resume_state:
+        state.resume_mode = _apply_resume(agent, state, resume_state, run_state_store, run_id)
+    if state.resume_mode not in (RESUME_MODE_EXACT, RESUME_MODE_EXACT_DRIFT):
+        await seed_run_context(agent, state, user_input)
+        if state.resume_mode == RESUME_MODE_SUMMARY and state.resume_summary:
+            state.exception_stage = "history.add_resume_summary"
+            await agent.history.add_message("user", f"[Resume context]\n{state.resume_summary}")
+    if state.resume_mode in _DRIFT_MODES:
+        await agent.history.add_message("user", _WORKSPACE_DRIFT_NOTICE)
     start_trajectory(agent, state, user_input=user_input, task_id=task_id)
 
     def cancel_requested() -> bool:
@@ -620,6 +708,7 @@ async def run_agent_loop(
             if turn.parse_errors and not turn.tool_uses:
                 await handle_parse_only_turn(agent, state, turn, step_start=step_start)
                 _record_step_checkpoint(
+                    agent,
                     run_state_store,
                     run_id,
                     state,
@@ -648,6 +737,7 @@ async def run_agent_loop(
                 if completion_result is not None:
                     completion_observation = completion_result.content
                     _record_step_checkpoint(
+                        agent,
                         run_state_store,
                         run_id,
                         state,
@@ -662,6 +752,7 @@ async def run_agent_loop(
                 if agent.history.messages:
                     completion_observation = str(agent.history.messages[-1].get("content", ""))
                 _record_step_checkpoint(
+                    agent,
                     run_state_store,
                     run_id,
                     state,
@@ -684,6 +775,7 @@ async def run_agent_loop(
                     step_start=step_start,
                 )
                 _record_step_checkpoint(
+                    agent,
                     run_state_store,
                     run_id,
                     state,
@@ -707,6 +799,7 @@ async def run_agent_loop(
             tool_results = await execute_tools_fn(turn.tool_uses, agent.tool_dict)
             if cancel_requested():
                 _record_step_checkpoint(
+                    agent,
                     run_state_store,
                     run_id,
                     state,
@@ -757,6 +850,7 @@ async def run_agent_loop(
                 )
                 hard_error = str(batch.hard_tool_exception.get("content", "Error: tool execution failed"))
                 _record_step_checkpoint(
+                    agent,
                     run_state_store,
                     run_id,
                     state,
@@ -816,6 +910,7 @@ async def run_agent_loop(
             )
             if verification_result is not None:
                 _record_step_checkpoint(
+                    agent,
                     run_state_store,
                     run_id,
                     state,
@@ -841,6 +936,7 @@ async def run_agent_loop(
                     is_retry=False,
                 )
                 _record_step_checkpoint(
+                    agent,
                     run_state_store,
                     run_id,
                     state,
@@ -868,6 +964,7 @@ async def run_agent_loop(
             if state.retry_count > cfg.agent.max_retries:
                 retry_message = f"Error: max retries ({cfg.agent.max_retries}) exceeded for {state.last_error_type}"
                 _record_step_checkpoint(
+                    agent,
                     run_state_store,
                     run_id,
                     state,
@@ -914,6 +1011,7 @@ async def run_agent_loop(
                 correction_feedback=correction_feedback,
             )
             _record_step_checkpoint(
+                agent,
                 run_state_store,
                 run_id,
                 state,
@@ -944,6 +1042,7 @@ async def run_agent_loop(
             is_retry=False,
         )
         _record_step_checkpoint(
+            agent,
             run_state_store,
             run_id,
             state,
@@ -953,6 +1052,7 @@ async def run_agent_loop(
             had_error=True,
             step_tokens=0,
             step_duration_ms=0,
+            snapshot=False,
         )
         return finalize_result(
             finalize_turn(

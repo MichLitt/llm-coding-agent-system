@@ -1,0 +1,946 @@
+{
+  "by_mode": {
+    "checkpoint": {
+      "crashed": 8,
+      "passed": 8,
+      "runs": 8
+    },
+    "llm": {
+      "crashed": 16,
+      "passed": 16,
+      "runs": 16
+    },
+    "sigkill": {
+      "crashed": 18,
+      "passed": 18,
+      "runs": 18
+    },
+    "tool": {
+      "crashed": 8,
+      "passed": 8,
+      "runs": 8
+    }
+  },
+  "cases": [
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "checkpoint:2",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "checkpoint",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": 0.195,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:5",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:3",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:5",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "tool:1",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "tool",
+      "passed": true,
+      "resume_mode": "restart_workspace_drift",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:4",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "restart",
+      "sigkill_after_seconds": 0.021,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:5",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "restart",
+      "sigkill_after_seconds": 0.018,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:2",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:5",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "restart",
+      "sigkill_after_seconds": 0.015,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "tool:1",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "tool",
+      "passed": true,
+      "resume_mode": "restart_workspace_drift",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "tool:3",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "tool",
+      "passed": true,
+      "resume_mode": "exact_workspace_drift",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "restart",
+      "sigkill_after_seconds": 0.043,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:5",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "checkpoint:5",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "checkpoint",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "tool:1",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "tool",
+      "passed": true,
+      "resume_mode": "restart_workspace_drift",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "tool:3",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "tool",
+      "passed": true,
+      "resume_mode": "exact_workspace_drift",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:5",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:5",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:5",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "tool:4",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "tool",
+      "passed": true,
+      "resume_mode": "exact_workspace_drift",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": 0.233,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": 0.176,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": 0.108,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "tool:2",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "tool",
+      "passed": true,
+      "resume_mode": "exact_workspace_drift",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "tool:1",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "tool",
+      "passed": true,
+      "resume_mode": "restart_workspace_drift",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "checkpoint:5",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "checkpoint",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": 0.263,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": 0.086,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:1",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "restart",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "restart",
+      "sigkill_after_seconds": 0.049,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "checkpoint:2",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "checkpoint",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": 0.127,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:5",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "checkpoint:3",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "checkpoint",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "checkpoint:5",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "checkpoint",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": 0.174,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "restart",
+      "sigkill_after_seconds": 0.021,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:3",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": 0.209,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:1",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "restart",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "checkpoint:5",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "checkpoint",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": 0.085,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": 0.266,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "checkpoint:1",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "checkpoint",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": null,
+      "crashed": true,
+      "first_exit_code": -9,
+      "mode": "sigkill",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": 0.107,
+      "stderr_tail": ""
+    },
+    {
+      "checks": {
+        "completed": true,
+        "files_equal": true,
+        "history_ok": true,
+        "step_rows_contiguous": true,
+        "steps_equal": true,
+        "usage_equal": true
+      },
+      "crash_at": "llm:4",
+      "crashed": true,
+      "first_exit_code": 137,
+      "mode": "llm",
+      "passed": true,
+      "resume_mode": "exact",
+      "sigkill_after_seconds": null,
+      "stderr_tail": ""
+    }
+  ],
+  "crashed_runs": 50,
+  "duration_seconds": 30.8,
+  "passed_runs": 50,
+  "reference": {
+    "history_sha256": "6e47fc51150b7bf15245b699b1bcfcc05ac11c232e373c2904eb0917fdcc2d86",
+    "llm_calls": 6,
+    "total_steps": 6,
+    "total_tokens": 2160
+  },
+  "resume_modes": {
+    "exact": 34,
+    "exact_workspace_drift": 4,
+    "restart": 8,
+    "restart_workspace_drift": 4
+  },
+  "runs": 50,
+  "schema_version": "crash-injection/v1",
+  "seed": 7,
+  "sigkill_call_delay_seconds": 0.05,
+  "steps_per_run": 5
+}

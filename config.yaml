@@ -85,3 +85,4 @@ eval:
 service:
   host: 127.0.0.1
   port: 8000
+  max_concurrent_runs: 4

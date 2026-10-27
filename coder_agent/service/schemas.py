@@ -18,6 +18,8 @@ class RunCreateRequest(BaseModel):
 class RunCreateResponse(BaseModel):
     run_id: str
     status: str
+    # True when an Idempotency-Key matched an earlier identical submit.
+    replayed: bool = False
 
 
 class RunCancelResponse(BaseModel):

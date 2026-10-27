@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
 import sqlite3
 import subprocess
 import threading
@@ -70,16 +72,56 @@ CREATE INDEX IF NOT EXISTS idx_tool_calls_run_id ON tool_calls(run_id, step_inde
 """
 
 # Additive columns applied to both new and pre-existing databases. All are
-# nullable: NULL means "not recorded", which old rows and runs whose provider
-# reported no usage both are. runs.total_tokens keeps its NOT NULL legacy
-# contract and is 0 in that case; token_usage_status disambiguates.
-_RUN_USAGE_COLUMNS: dict[str, str] = {
-    "input_tokens": "INTEGER",
-    "output_tokens": "INTEGER",
-    "llm_calls": "INTEGER",
-    "token_usage_status": "TEXT",
-    "estimated_cost_usd": "REAL",
+# nullable: NULL means "not recorded", which old rows also are.
+_ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
+    "runs": {
+        # Provider-reported usage. runs.total_tokens keeps its NOT NULL legacy
+        # contract and is 0 when unreported; token_usage_status disambiguates.
+        "input_tokens": "INTEGER",
+        "output_tokens": "INTEGER",
+        "llm_calls": "INTEGER",
+        "token_usage_status": "TEXT",
+        "estimated_cost_usd": "REAL",
+        # Owning process and liveness, for claim-on-start and orphan recovery.
+        "owner_host": "TEXT",
+        "owner_pid": "INTEGER",
+        "heartbeat_at": "REAL",
+        # Workspace fingerprint when the run first started: the drift baseline
+        # for a resume that has no step checkpoint yet.
+        "start_workspace_fingerprint": "TEXT",
+        # Service submit idempotency.
+        "idempotency_key": "TEXT",
+        "request_sha256": "TEXT",
+    },
+    "run_steps": {
+        # Exact-resume payload; see coder_agent.core.checkpoint.
+        "history_snapshot": "BLOB",
+        "workspace_fingerprint": "TEXT",
+    },
 }
+
+_POST_MIGRATION_SQL = """
+CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_idempotency_key
+    ON runs(idempotency_key) WHERE idempotency_key IS NOT NULL;
+"""
+
+RESUMABLE_STATUSES = frozenset({"pending", "running", "failed", "timeout", "interrupted"})
+DEFAULT_ORPHAN_STALE_AFTER_SECONDS = 900.0
+_HOST = socket.gethostname()
+
+
+class RunClaimError(RuntimeError):
+    """Raised when a run is owned by another live process."""
+
+
+def _process_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _truncate(text: Any, limit: int) -> str:
@@ -122,21 +164,36 @@ class RunMetrics:
 class RunStateStore:
     """SQLite-backed store for run lifecycle, step checkpoints, and tool audits."""
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(
+        self,
+        db_path: Path,
+        *,
+        orphan_stale_after_seconds: float = DEFAULT_ORPHAN_STALE_AFTER_SECONDS,
+    ) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.orphan_stale_after_seconds = float(orphan_stale_after_seconds)
+        # One connection serialized by a lock: writes are small, and WAL lets
+        # other processes (CLI, service) read while this one writes. The
+        # connect timeout is SQLite's busy timeout for cross-process locks.
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False, timeout=10)
         self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        # Durable across process crashes; only an OS crash can lose the last
+        # commits, which resume then treats as not-yet-checkpointed steps.
+        self._conn.execute("PRAGMA synchronous=NORMAL")
         self._lock = threading.Lock()
         self.init_db()
 
     def init_db(self) -> None:
         with self._lock:
             self._conn.executescript(_SCHEMA)
-            existing = {row["name"] for row in self._conn.execute("PRAGMA table_info(runs)")}
-            for column, column_type in _RUN_USAGE_COLUMNS.items():
-                if column not in existing:
-                    self._conn.execute(f"ALTER TABLE runs ADD COLUMN {column} {column_type}")
+            for table, columns in _ADDITIVE_COLUMNS.items():
+                existing = {row["name"] for row in self._conn.execute(f"PRAGMA table_info({table})")}
+                for column, column_type in columns.items():
+                    if column not in existing:
+                        self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+            self._conn.executescript(_POST_MIGRATION_SQL)
             self._conn.commit()
 
     def close(self) -> None:
@@ -155,6 +212,8 @@ class RunStateStore:
         workspace_path: str | None = None,
         git_commit: str | None = None,
         config_json: str | dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
+        request_sha256: str | None = None,
     ) -> None:
         payload = config_json
         if payload is not None and not isinstance(payload, str):
@@ -165,8 +224,9 @@ class RunStateStore:
                 """
                 INSERT INTO runs (
                     run_id, task_id, experiment_id, preset, llm_profile, workspace_path,
-                    task_description, status, git_commit, config_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+                    task_description, status, git_commit, config_json, created_at,
+                    idempotency_key, request_sha256
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -179,24 +239,105 @@ class RunStateStore:
                     git_commit or current_git_commit(),
                     payload,
                     now,
+                    idempotency_key,
+                    request_sha256,
                 ),
             )
             self._conn.commit()
 
-    def start_run(self, run_id: str) -> None:
+    def find_run_by_idempotency_key(self, idempotency_key: str) -> dict[str, Any] | None:
         with self._lock:
-            self._conn.execute(
-                """
-                UPDATE runs
-                SET status = 'running',
-                    started_at = COALESCE(started_at, ?),
-                    finished_at = NULL,
-                    error_summary = NULL
-                WHERE run_id = ?
-                """,
-                (time.time(), run_id),
-            )
-            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT * FROM runs WHERE idempotency_key = ?", (idempotency_key,)
+            ).fetchone()
+        return self._decode_run_row(row)
+
+    def _owner_gone(self, run: dict[str, Any], now: float) -> bool:
+        """Whether a running run's owner can no longer make progress."""
+        host, pid = run.get("owner_host"), run.get("owner_pid")
+        if host == _HOST and pid is not None:
+            return int(pid) != os.getpid() and not _process_alive(int(pid))
+        # Another host (or a legacy row without an owner): only a stale
+        # heartbeat is evidence. Steps can legitimately run for minutes.
+        last_seen = run.get("heartbeat_at") or run.get("started_at") or run.get("created_at") or 0.0
+        return now - float(last_seen) > self.orphan_stale_after_seconds
+
+    def claim_blocker(self, run: dict[str, Any]) -> str | None:
+        """Reason this process may not take over ``run``, or None when it may."""
+        if run.get("status") != "running" or run.get("owner_pid") is None:
+            return None
+        if run.get("owner_host") == _HOST and int(run["owner_pid"]) == os.getpid():
+            return None
+        if self._owner_gone(run, time.time()):
+            return None
+        return (
+            f"Run {run['run_id']} is currently running in process {run['owner_pid']} "
+            f"on {run.get('owner_host')}."
+        )
+
+    def start_run(self, run_id: str, *, start_workspace_fingerprint: str | None = None) -> None:
+        """Claim the run for this process and mark it running.
+
+        The claim is a compare-and-set on the (status, owner) values that were
+        checked, so two processes resuming the same run cannot both win.
+        Raises RunClaimError when another live process owns the run.
+        """
+        for _ in range(3):
+            run = self.get_run(run_id)
+            if run is None:
+                raise RunClaimError(f"Run {run_id} not found.")
+            blocker = self.claim_blocker(run)
+            if blocker:
+                raise RunClaimError(blocker)
+            now = time.time()
+            with self._lock:
+                cursor = self._conn.execute(
+                    """
+                    UPDATE runs
+                    SET status = 'running',
+                        started_at = COALESCE(started_at, ?),
+                        finished_at = NULL,
+                        error_summary = NULL,
+                        owner_host = ?,
+                        owner_pid = ?,
+                        heartbeat_at = ?,
+                        start_workspace_fingerprint = COALESCE(start_workspace_fingerprint, ?)
+                    WHERE run_id = ? AND status IS ? AND owner_host IS ? AND owner_pid IS ?
+                    """,
+                    (
+                        now, _HOST, os.getpid(), now, start_workspace_fingerprint,
+                        run_id, run["status"], run.get("owner_host"), run.get("owner_pid"),
+                    ),
+                )
+                self._conn.commit()
+            if cursor.rowcount == 1:
+                return
+        raise RunClaimError(f"Run {run_id} changed concurrently while being claimed.")
+
+    def reconcile_orphans(self) -> list[str]:
+        """Mark running runs whose owner is gone as 'interrupted' (resumable)."""
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM runs WHERE status = 'running'").fetchall()
+        now = time.time()
+        interrupted: list[str] = []
+        for row in rows:
+            run = dict(row)
+            if not self._owner_gone(run, now):
+                continue
+            with self._lock:
+                cursor = self._conn.execute(
+                    """
+                    UPDATE runs
+                    SET status = 'interrupted',
+                        error_summary = 'Owner process exited before the run finished.'
+                    WHERE run_id = ? AND status = 'running' AND owner_host IS ? AND owner_pid IS ?
+                    """,
+                    (run["run_id"], run.get("owner_host"), run.get("owner_pid")),
+                )
+                self._conn.commit()
+            if cursor.rowcount == 1:
+                interrupted.append(str(run["run_id"]))
+        return interrupted
 
     def finish_run(
         self,
@@ -250,7 +391,7 @@ class RunStateStore:
                 """
                 UPDATE runs
                 SET status = 'cancelled', finished_at = ?
-                WHERE run_id = ? AND status = 'running'
+                WHERE run_id = ? AND status IN ('pending', 'running', 'interrupted')
                 """,
                 (time.time(), run_id),
             )
@@ -269,14 +410,19 @@ class RunStateStore:
         step_tokens: int,
         step_duration_ms: int,
         loop_state: dict[str, Any],
+        history_snapshot: bytes | None = None,
+        workspace_fingerprint: str | None = None,
     ) -> None:
+        """Write one step checkpoint and the run heartbeat in a single transaction."""
+        now = time.time()
         with self._lock:
             self._conn.execute(
                 """
                 INSERT INTO run_steps (
                     run_id, step_index, thought_text, observation_text, tool_call_count,
-                    had_error, step_tokens, step_duration_ms, loop_state_json, recorded_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    had_error, step_tokens, step_duration_ms, loop_state_json, recorded_at,
+                    history_snapshot, workspace_fingerprint
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(run_id, step_index) DO UPDATE SET
                     thought_text = excluded.thought_text,
                     observation_text = excluded.observation_text,
@@ -285,7 +431,9 @@ class RunStateStore:
                     step_tokens = excluded.step_tokens,
                     step_duration_ms = excluded.step_duration_ms,
                     loop_state_json = excluded.loop_state_json,
-                    recorded_at = excluded.recorded_at
+                    recorded_at = excluded.recorded_at,
+                    history_snapshot = excluded.history_snapshot,
+                    workspace_fingerprint = excluded.workspace_fingerprint
                 """,
                 (
                     run_id,
@@ -297,9 +445,12 @@ class RunStateStore:
                     int(step_tokens),
                     int(step_duration_ms),
                     _json_dumps(loop_state),
-                    time.time(),
+                    now,
+                    history_snapshot,
+                    workspace_fingerprint,
                 ),
             )
+            self._conn.execute("UPDATE runs SET heartbeat_at = ? WHERE run_id = ?", (now, run_id))
             self._conn.commit()
 
     def record_tool_call(
@@ -370,7 +521,37 @@ class RunStateStore:
         return [self._decode_step_row(row) for row in rows]
 
     def is_resumable_status(self, status: str | None) -> bool:
-        return str(status or "") in {"pending", "running", "failed", "timeout"}
+        return str(status or "") in RESUMABLE_STATUSES
+
+    def latest_resumable_checkpoint(self, run_id: str) -> dict[str, Any] | None:
+        """Latest step that carries an exact-resume history snapshot."""
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT step_index, thought_text, observation_text, tool_call_count, had_error,
+                       step_tokens, step_duration_ms, loop_state_json, recorded_at,
+                       history_snapshot, workspace_fingerprint
+                FROM run_steps
+                WHERE run_id = ? AND history_snapshot IS NOT NULL
+                ORDER BY step_index DESC
+                LIMIT 1
+                """,
+                (run_id,),
+            ).fetchone()
+        return self._decode_step_row(row)
+
+    def discard_steps_from(self, run_id: str, step_index: int) -> int:
+        """Drop step checkpoints at or after ``step_index`` (superseded by a resume).
+
+        Tool-call audit rows are kept: those tool executions did happen.
+        """
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM run_steps WHERE run_id = ? AND step_index >= ?",
+                (run_id, int(step_index)),
+            )
+            self._conn.commit()
+        return cursor.rowcount
 
     def latest_checkpoint(self, run_id: str) -> dict[str, Any] | None:
         with self._lock:
@@ -397,6 +578,9 @@ class RunStateStore:
         reason = None
         if not resumable:
             reason = f"Run {run_id} is already {status} and cannot be resumed."
+        elif blocker := self.claim_blocker(run):
+            resumable = False
+            reason = blocker
         return {
             "run": run,
             "checkpoint": checkpoint,

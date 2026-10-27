@@ -194,8 +194,19 @@ class Agent:
                 raise ValueError(
                     f"Run {resolved_run_id} is already {existing_run['status']} and cannot be resumed."
                 )
-            checkpoint = self.run_state_store.latest_checkpoint(resolved_run_id)
+            blocker = self.run_state_store.claim_blocker(existing_run)
+            if blocker:
+                raise ValueError(blocker)
+            # Prefer the latest checkpoint carrying an exact-resume snapshot, and
+            # take loop state from that same row so history and counters agree.
+            exact = self.run_state_store.latest_resumable_checkpoint(resolved_run_id)
+            checkpoint = exact or self.run_state_store.latest_checkpoint(resolved_run_id)
             resume_state = dict(checkpoint.get("loop_state_json") or {}) if checkpoint else {}
+            if exact is not None:
+                resume_state["history_snapshot"] = exact.get("history_snapshot")
+                resume_state["workspace_fingerprint"] = exact.get("workspace_fingerprint")
+            resume_state["run_was_started"] = existing_run.get("started_at") is not None
+            resume_state["start_workspace_fingerprint"] = existing_run.get("start_workspace_fingerprint")
             resume_state["resume_summary"] = self.run_state_store.build_resume_summary(resolved_run_id)
             resume_state["run_started_at"] = existing_run.get("started_at") or resume_state.get("start_time")
             return resolved_user_input, resolved_run_id, resume_state

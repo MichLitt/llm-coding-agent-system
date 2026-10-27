@@ -195,6 +195,19 @@ Single-task runs now emit a persistent `run_id`. You can resume a prior run from
 uv run python -m coder_agent run --resume <run_id>
 ```
 
+Each step end is a checkpoint holding the loop state, provider usage, a
+compressed snapshot of the full message history, and a workspace fingerprint.
+A resume restores the exact history (`resume_mode: exact`) and appends a notice
+when the workspace changed after the checkpoint (`exact_workspace_drift`, e.g.
+the interrupted step had already edited files). A crash before the first
+checkpoint restarts the task (`restart` / `restart_workspace_drift`). Legacy
+checkpoints without snapshots fall back to the older text summary (`summary`).
+Tools run at least once: the step in flight when the process died is executed
+again. A run can be resumed only when its owning process is gone; the claim is
+an atomic compare-and-set on its status and owner. `uv run python -m
+coder_agent.eval.crash_injection --runs 50` replays abrupt exits and real
+SIGKILLs against these guarantees.
+
 Inspect recent runs and a specific checkpoint before resuming:
 
 ```bash
@@ -245,7 +258,12 @@ uv run python -m coder_agent serve --host 127.0.0.1 --port 8000
 ```
 
 Set `AGENT_API_TOKEN` to require `Authorization: Bearer <token>` on runtime
-`/runs` endpoints (while `/health` stays public). Set `RAG_API_TOKEN` when the
+`/runs` endpoints (while `/health` stays public). `service.max_concurrent_runs`
+(default 4) caps active runs; extra submits get `429` with `Retry-After`. Send
+an `Idempotency-Key` header to make a submit safe to retry: the same key and
+body return the original run with `replayed: true`, and a different body
+returns `409`. On startup the service marks runs left `running` by a dead
+process as `interrupted`; resume them with `run --resume <run_id>`. Set `RAG_API_TOKEN` when the
 configured RAG service requires a token; the knowledge retrieval tool forwards
 it without including it in run logs or tool output.
 

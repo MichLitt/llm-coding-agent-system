@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import sqlite3
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 
 from coder_agent.cli.factory import make_agent, make_run_state_store, resolve_agent_config
 from coder_agent.config import cfg
@@ -23,43 +27,103 @@ from coder_agent.service.schemas import (
 from coder_agent.service.auth import require_api_token
 
 
+class ServiceCapacityError(RuntimeError):
+    """All run slots of this service process are busy."""
+
+
+class IdempotencyConflictError(RuntimeError):
+    """An Idempotency-Key was reused with a different request body."""
+
+
+@dataclass(frozen=True)
+class SubmitResult:
+    run_id: str
+    status: str
+    replayed: bool = False
+
+
+def _request_sha256(request: RunCreateRequest) -> str:
+    canonical = json.dumps(request.model_dump(), sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 class RuntimeService:
-    def __init__(self, run_state_store: RunStateStore | None = None):
+    def __init__(
+        self,
+        run_state_store: RunStateStore | None = None,
+        *,
+        max_concurrent_runs: int | None = None,
+    ):
         self.run_state_store = run_state_store or make_run_state_store()
+        self.max_concurrent_runs = max(1, int(max_concurrent_runs or cfg.service.max_concurrent_runs))
         self._threads: dict[str, threading.Thread] = {}
         self._cancel_events: dict[str, threading.Event] = {}
         self._lock = threading.Lock()
+        # Run threads die with the process, so runs a previous service process
+        # left 'running' can never finish; mark them resumable ('interrupted').
+        self.recovered_run_ids = self.run_state_store.reconcile_orphans()
 
-    def submit_run(self, request: RunCreateRequest) -> str:
+    def _replay(self, idempotency_key: str, request_sha256: str) -> SubmitResult | None:
+        existing = self.run_state_store.find_run_by_idempotency_key(idempotency_key)
+        if existing is None:
+            return None
+        if existing.get("request_sha256") != request_sha256:
+            raise IdempotencyConflictError(
+                "Idempotency-Key was already used for a different request."
+            )
+        return SubmitResult(str(existing["run_id"]), str(existing["status"]), replayed=True)
+
+    def submit_run(self, request: RunCreateRequest, idempotency_key: str | None = None) -> SubmitResult:
+        request_sha256 = _request_sha256(request)
+        if idempotency_key:
+            replay = self._replay(idempotency_key, request_sha256)
+            if replay is not None:
+                return replay
         run_id = uuid.uuid4().hex
         workspace = str(Path(request.workspace).resolve()) if request.workspace else None
         preset_name = request.preset or "default"
-        self.run_state_store.create_run(
-            run_id,
-            request.task,
-            experiment_id="service",
-            preset=request.preset,
-            llm_profile=request.llm_profile,
-            workspace_path=workspace,
-            git_commit=current_git_commit(),
-            config_json={
-                "source": "service",
-                "preset": request.preset,
-                "workspace": workspace,
-                "max_steps": request.max_steps,
-            },
-        )
-        thread = threading.Thread(
-            target=self._run_in_background,
-            args=(run_id, request, preset_name),
-            daemon=True,
-            name=f"coder-agent-run-{run_id[:8]}",
-        )
+        # Capacity check, row insert and thread registration happen under one
+        # lock so concurrent submits cannot exceed max_concurrent_runs.
         with self._lock:
+            active = sum(1 for thread in self._threads.values() if thread.is_alive())
+            if active >= self.max_concurrent_runs:
+                raise ServiceCapacityError(
+                    f"{active} runs are active (limit {self.max_concurrent_runs}); retry later."
+                )
+            try:
+                self.run_state_store.create_run(
+                    run_id,
+                    request.task,
+                    experiment_id="service",
+                    preset=request.preset,
+                    llm_profile=request.llm_profile,
+                    workspace_path=workspace,
+                    git_commit=current_git_commit(),
+                    config_json={
+                        "source": "service",
+                        "preset": request.preset,
+                        "workspace": workspace,
+                        "max_steps": request.max_steps,
+                    },
+                    idempotency_key=idempotency_key or None,
+                    request_sha256=request_sha256 if idempotency_key else None,
+                )
+            except sqlite3.IntegrityError:
+                # Another process inserted the same key first (unique index).
+                replay = self._replay(idempotency_key, request_sha256) if idempotency_key else None
+                if replay is None:
+                    raise
+                return replay
+            thread = threading.Thread(
+                target=self._run_in_background,
+                args=(run_id, request, preset_name),
+                daemon=True,
+                name=f"coder-agent-run-{run_id[:8]}",
+            )
             self._cancel_events[run_id] = threading.Event()
             self._threads[run_id] = thread
-        thread.start()
-        return run_id
+            thread.start()
+        return SubmitResult(run_id, "pending")
 
     def _run_in_background(self, run_id: str, request: RunCreateRequest, preset_name: str) -> None:
         agent = None
@@ -153,9 +217,17 @@ def create_app(run_state_store: RunStateStore | None = None) -> FastAPI:
     protected = [Depends(require_api_token)]
 
     @app.post("/runs", response_model=RunCreateResponse, dependencies=protected)
-    def create_run(request: RunCreateRequest) -> RunCreateResponse:
-        run_id = service.submit_run(request)
-        return RunCreateResponse(run_id=run_id, status="pending")
+    def create_run(
+        request: RunCreateRequest,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=200),
+    ) -> RunCreateResponse:
+        try:
+            result = service.submit_run(request, idempotency_key=idempotency_key)
+        except ServiceCapacityError as exc:
+            raise HTTPException(status_code=429, detail=str(exc), headers={"Retry-After": "30"}) from exc
+        except IdempotencyConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return RunCreateResponse(run_id=result.run_id, status=result.status, replayed=result.replayed)
 
     @app.get("/runs", response_model=RunListResponse, dependencies=protected)
     def list_runs(limit: int = 50) -> RunListResponse:

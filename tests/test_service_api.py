@@ -6,7 +6,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 from coder_agent.memory.run_state import RunStateStore
-from coder_agent.service.app import RuntimeService, create_app
+from coder_agent.service.app import RuntimeService, SubmitResult, create_app
 from coder_agent.service.schemas import RunCreateRequest
 
 
@@ -49,12 +49,16 @@ def test_service_api_submit_returns_run_id(tmp_path, monkeypatch):
     app = create_app(run_state_store=store)
     client = TestClient(app)
 
-    monkeypatch.setattr(app.state.runtime_service, "submit_run", lambda request: "run-post-1")
+    monkeypatch.setattr(
+        app.state.runtime_service,
+        "submit_run",
+        lambda request, idempotency_key=None: SubmitResult("run-post-1", "pending"),
+    )
 
     response = client.post("/runs", json={"task": "demo task"})
 
     assert response.status_code == 200
-    assert response.json() == {"run_id": "run-post-1", "status": "pending"}
+    assert response.json() == {"run_id": "run-post-1", "status": "pending", "replayed": False}
 
 
 def test_service_token_protects_runs_but_not_health(tmp_path, monkeypatch):

@@ -148,6 +148,8 @@ class EvalConfig:
 class ServiceConfig:
     host: str = _Y.get("service", {}).get("host", "127.0.0.1")
     port: int = int(_Y.get("service", {}).get("port", 8000))
+    # Runs executing concurrently in one service process; submits beyond it get 429.
+    max_concurrent_runs: int = int(_Y.get("service", {}).get("max_concurrent_runs", 4))
 
 
 @dataclass
