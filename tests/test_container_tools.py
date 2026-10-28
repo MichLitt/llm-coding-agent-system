@@ -84,8 +84,10 @@ def test_container_tools_expose_identical_tool_schemas(pair):
         ("write_file", {"operation": "write", "path": "src/new/mod.py", "content": "X = 1\n"}),
         ("write_file", {"operation": "edit", "path": "src/app.py", "old_text": "return 1", "new_text": "return 2"}),
         ("write_file", {"operation": "edit", "path": "src/app.py", "old_text": "absent", "new_text": "x"}),
+        ("write_file", {"operation": "edit", "path": "src/app.py", "old_text": "return 1", "new_text": "return 1"}),
         ("patch_file", {"path": "src/app.py", "edits": [{"old_text": "return 1", "new_text": "return 3"}]}),
         ("patch_file", {"path": "src/app.py", "edits": [{"old_text": "def", "new_text": "x", "expected_replacements": 2}]}),
+        ("patch_file", {"path": "src/app.py", "edits": [{"old_text": "return 1", "new_text": "return 1"}]}),
         ("list_dir", {"path": "src", "depth": 2}),
         ("list_dir", {"path": "nope"}),
         ("search_code", {"pattern": "VALUE", "path": "src"}),
@@ -162,3 +164,24 @@ def test_diff_includes_new_files(tmp_path):
 
     assert "diff --git a/a.py b/a.py" in patch and "+x = 2" in patch
     assert "diff --git a/b.py b/b.py" in patch and "new file mode" in patch
+
+
+def test_noop_edits_are_rejected_and_leave_the_file_unchanged(pair):
+    # Pilot finding: a no-op patch reported "Patched", and the model kept
+    # re-issuing it believing the fix had landed.
+    local, container, local_root, container_root, _ = pair
+    before = (container_root / "src/app.py").read_text()
+    output = _run(container["patch_file"], path="src/app.py", edits=[{"old_text": "return 1", "new_text": "return 1"}])
+    assert output.startswith("Error: edit #1 is a no-op")
+    assert (container_root / "src/app.py").read_text() == before
+
+
+def test_missing_required_tool_arguments_are_named_for_local_and_container_tools(pair):
+    from coder_agent.tools.execute import execute_tools
+
+    local, container, *_ = pair
+    call = {"id": "c1", "name": "write_file", "input": {"path": "repro.py", "content": "print(1)\n"}}
+    for tools in (local, container):
+        [result] = asyncio.run(execute_tools([call], tools))
+        assert result["is_error"] is True
+        assert result["content"] == "Error: write_file is missing required argument(s): operation (required: operation, path)"

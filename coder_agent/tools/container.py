@@ -229,6 +229,8 @@ class ContainerWriteFileTool(WriteFileTool):
                     return f"Error: file not found: {PurePosixPath(full_path).name}"
                 if not old_text:
                     return "Error: old_text is required for edit"
+                if old_text == new_text:
+                    return "Error: edit is a no-op: old_text and new_text are identical, so nothing would change"
                 if old_text not in current:
                     return "Error: old_text not found in file"
                 await self.sandbox.write_text(full_path, current.replace(old_text, new_text, 1))
@@ -265,6 +267,8 @@ class ContainerPatchFileTool(PatchFileTool):
                 expected = int(edit.get("expected_replacements", 1))
                 if not old_text:
                     return f"Error: edit #{index} old_text is required"
+                if old_text == new_text:
+                    return f"Error: edit #{index} is a no-op: old_text and new_text are identical, so nothing would change"
                 if expected < 0:
                     return f"Error: edit #{index} expected_replacements must be >= 0"
                 actual_matches = candidate_content.count(old_text)

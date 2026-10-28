@@ -129,6 +129,8 @@ class WriteFileTool(Tool):
             return f"Error: file not found: {full_path.name}"
         if not old_text:
             return "Error: old_text is required for edit"
+        if old_text == new_text:
+            return "Error: edit is a no-op: old_text and new_text are identical, so nothing would change"
         try:
             content = full_path.read_text(encoding="utf-8", errors="replace")
             if old_text not in content:
@@ -188,6 +190,8 @@ class PatchFileTool(Tool):
                 expected = int(edit.get("expected_replacements", 1))
                 if not old_text:
                     return f"Error: edit #{index} old_text is required"
+                if old_text == new_text:
+                    return f"Error: edit #{index} is a no-op: old_text and new_text are identical, so nothing would change"
                 if expected < 0:
                     return f"Error: edit #{index} expected_replacements must be >= 0"
 

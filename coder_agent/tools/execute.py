@@ -41,6 +41,20 @@ async def _execute_single(call: Any, tool_dict: dict[str, Tool], policy: ToolPol
         response["error_kind"] = f"policy_denied:{call_input.get('rule_id', 'unknown')}"
         response["duration_ms"] = int((time.perf_counter() - started_at) * 1000)
         return response
+    tool = tool_dict.get(call_name)
+    if tool is not None and isinstance(call_input, dict):
+        # Name the missing argument instead of surfacing Python's TypeError text.
+        required = list(tool.input_schema.get("required", []))
+        missing = [name for name in required if name not in call_input]
+        if missing:
+            response["content"] = (
+                f"Error: {call_name} is missing required argument(s): {', '.join(missing)} "
+                f"(required: {', '.join(required)})"
+            )
+            response["is_error"] = True
+            response["error_kind"] = "tool_error"
+            response["duration_ms"] = int((time.perf_counter() - started_at) * 1000)
+            return response
     try:
         result = await tool_dict[call_name].execute(**call_input)
         response["content"] = str(result)
