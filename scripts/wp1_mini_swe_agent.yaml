@@ -1,0 +1,20 @@
+# WP1 arm R (report/PREREG_WP1_SWEBENCH_VERIFIED_DRAFT.md §4): mini-SWE-agent 2.4.6
+# with its default SWE-bench prompt, layered on its built-in swebench.yaml.
+# Only the settings that must match arm A are overridden here. The run script
+# sets model.model_kwargs.api_base from the glm_5_nothink profile, so both arms
+# use the same endpoint.
+agent:
+  step_limit: 40  # arm A: --max-steps 40; both count model calls
+  cost_limit: 0  # disabled; litellm has no GLM price
+environment:
+  run_args: ["--rm", "--network", "none"]  # arm A runs with --network none
+  pull_timeout: 1800  # official images are about 4 GB
+model:
+  model_name: "openai/glm-5.1"
+  cost_tracking: "ignore_errors"
+  model_kwargs:
+    temperature: 0.2
+    max_tokens: 8192
+    extra_body:
+      thinking:
+        type: disabled
