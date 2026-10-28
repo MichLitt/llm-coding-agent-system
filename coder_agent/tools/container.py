@@ -9,7 +9,8 @@ workspace is the container path (``/testbed``).
 Isolation defaults: no network, a pids limit, ``no-new-privileges``, optional
 CPU/memory limits, and an in-container ``timeout`` so a timed-out command is
 killed in the container rather than only on the host. The host environment
-(and its API keys) is never passed to the container.
+(and its API keys) is never passed to the container; only the variables given
+to ``start(env=...)`` are set, such as the UTF-8 locale for SWE-bench images.
 
 Paths are confined lexically to the workdir; symlinks inside the container are
 not resolved, because the container itself is the boundary.
@@ -34,6 +35,10 @@ Runner = Callable[[list[str], "bytes | None", float], "tuple[int, bytes, bytes]"
 
 # SWE-bench instance images keep the task environment in a conda env.
 SWEBENCH_ENV_SETUP = "source /opt/miniconda3/bin/activate testbed >/dev/null 2>&1 || true"
+# The images default to an ASCII locale, under which tests with non-ASCII file
+# names fail with UnicodeEncodeError. The harness runs such repositories under
+# a UTF-8 locale, so the Agent's shell should match.
+SWEBENCH_CONTAINER_ENV = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
 _TIMEOUT_EXIT = 124
 _MISSING_EXIT = 44
 
@@ -87,6 +92,7 @@ class DockerSandbox:
         cpus: float | None = None,
         memory: str | None = None,
         pids_limit: int = 1024,
+        env: dict[str, str] | None = None,
         docker: str = "docker",
         runner: Runner = subprocess_runner,
         timeout_wrapper: bool = True,
@@ -96,6 +102,8 @@ class DockerSandbox:
             "--network", network, "--pids-limit", str(pids_limit),
             "--security-opt", "no-new-privileges", "-w", workdir,
         ]
+        for key, value in (env or {}).items():
+            argv += ["-e", f"{key}={value}"]
         if cpus:
             argv += ["--cpus", str(cpus)]
         if memory:

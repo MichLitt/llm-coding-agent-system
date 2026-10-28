@@ -42,6 +42,7 @@ from typing import Any, Callable
 from coder_agent.config import cfg, resolve_llm_profile
 from coder_agent.memory.run_state import current_git_commit
 from coder_agent.tools.container import (
+    SWEBENCH_CONTAINER_ENV,
     SWEBENCH_ENV_SETUP,
     DockerSandbox,
     build_container_tools,
@@ -154,6 +155,7 @@ def _default_start_sandbox(instance_id: str, options: dict[str, Any]) -> DockerS
         swebench_image(instance_id, options["namespace"]),
         name=f"coder-agent-{_safe_name(instance_id)}-{uuid.uuid4().hex[:6]}",
         env_setup=SWEBENCH_ENV_SETUP,
+        env=SWEBENCH_CONTAINER_ENV,
         network=options["network"],
         cpus=options.get("cpus"),
         memory=options.get("memory"),

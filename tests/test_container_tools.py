@@ -9,6 +9,7 @@ import pytest
 
 from coder_agent.core.tool_registry import build_tools
 from coder_agent.tools.container import (
+    SWEBENCH_CONTAINER_ENV,
     CommandTimeout,
     DockerSandbox,
     build_container_tools,
@@ -131,12 +132,13 @@ def test_sandbox_start_applies_isolation_flags_and_wraps_timeouts():
         calls.append(argv)
         return (0, b"cid-9\n", b"") if argv[1] == "run" else (124, b"", b"")
 
-    sandbox = DockerSandbox.start("img:latest", name="n1", cpus=2, memory="4g", runner=runner)
+    sandbox = DockerSandbox.start("img:latest", name="n1", cpus=2, memory="4g", env=SWEBENCH_CONTAINER_ENV, runner=runner)
     run_argv = calls[0]
     assert sandbox.container == "cid-9"
     for flag, value in (("--network", "none"), ("--pids-limit", "1024"), ("--security-opt", "no-new-privileges"),
                         ("--cpus", "2"), ("--memory", "4g"), ("--entrypoint", "sleep")):
         assert run_argv[run_argv.index(flag) + 1] == value
+    assert [run_argv[i + 1] for i, arg in enumerate(run_argv) if arg == "-e"] == ["LANG=C.UTF-8", "LC_ALL=C.UTF-8"]
     assert run_argv[-2:] == ["img:latest", "infinity"]
 
     with pytest.raises(CommandTimeout):

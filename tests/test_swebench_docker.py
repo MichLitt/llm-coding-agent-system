@@ -252,3 +252,16 @@ def test_default_agents_in_one_run_share_one_run_state_store(tmp_path):
     other = swebench_docker._shared_run_state_store(tmp_path / "other" / "run_state.db")
     assert first is second
     assert other is not first
+
+
+def test_default_sandbox_uses_the_swebench_conda_env_and_utf8_locale(monkeypatch):
+    from coder_agent.eval import swebench_docker
+
+    captured = {}
+    monkeypatch.setattr(swebench_docker.DockerSandbox, "start", classmethod(lambda cls, image, **kw: captured.update(kw, image=image)))
+    swebench_docker._default_start_sandbox(
+        "django__django-11490", {"namespace": "swebench", "network": "none", "cpus": 2.0, "memory": "6g"})
+
+    assert captured["image"] == "swebench/sweb.eval.x86_64.django_1776_django-11490:latest"
+    assert captured["env"] == {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
+    assert captured["network"] == "none"
