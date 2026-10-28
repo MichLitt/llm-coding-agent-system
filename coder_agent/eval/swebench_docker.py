@@ -12,8 +12,9 @@ The Agent sees only the problem statement, never the hidden FAIL_TO_PASS or
 PASS_TO_PASS tests. Instances come from a JSONL file written by
 ``scripts/export_swebench_instances.py``; this keeps ``datasets`` out of the
 Agent's dependencies. Re-running with the same output directory skips
-instances that already have a prediction; ``--retry-errors`` re-runs, once,
-the instances whose last attempt hit an infrastructure or provider failure.
+instances that already have a prediction. With ``--retry-errors``, an instance
+whose attempt hit an infrastructure or provider failure is run once more with
+identical settings, in the same invocation (at most two attempts in total).
 
 Each instance has a wall-clock cap (default 30 minutes). A run that reaches
 it is stopped at the next step boundary and counted as a budget failure: its
@@ -125,6 +126,25 @@ def _dedupe_predictions(path: Path) -> None:
     tmp.replace(path)
 
 
+_RUN_STATE_STORES: dict[Path, Any] = {}
+_RUN_STATE_STORES_LOCK = threading.Lock()
+
+
+def _shared_run_state_store(path: Path) -> Any:
+    """One store per database for the whole run, shared by the worker threads.
+
+    RunStateStore is thread-safe. Opening one per instance raced on first use
+    and left every connection open.
+    """
+    from coder_agent.cli.factory import make_run_state_store
+
+    key = path.resolve()
+    with _RUN_STATE_STORES_LOCK:
+        if key not in _RUN_STATE_STORES:
+            _RUN_STATE_STORES[key] = make_run_state_store(key)
+        return _RUN_STATE_STORES[key]
+
+
 def _safe_name(instance_id: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_.-]", "-", instance_id)
 
@@ -141,7 +161,7 @@ def _default_start_sandbox(instance_id: str, options: dict[str, Any]) -> DockerS
 
 
 def _default_make_agent(sandbox: DockerSandbox, options: dict[str, Any]) -> Any:
-    from coder_agent.cli.factory import make_agent, make_run_state_store, make_trajectory_store, resolve_agent_config
+    from coder_agent.cli.factory import make_agent, make_trajectory_store, resolve_agent_config
 
     return make_agent(
         resolve_agent_config(options["preset"]),
@@ -151,7 +171,7 @@ def _default_make_agent(sandbox: DockerSandbox, options: dict[str, Any]) -> Any:
         no_memory=True,
         experiment_id=options["label"],
         trajectory_store=make_trajectory_store(str(options["output"] / "trajectories")),
-        run_state_store=make_run_state_store(options["output"] / "run_state.db"),
+        run_state_store=_shared_run_state_store(options["output"] / "run_state.db"),
         preset_name=options["preset"],
         tools=build_container_tools(sandbox),
     )
@@ -251,13 +271,29 @@ def run_instances(
             with predictions_path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(prediction) + "\n")
 
-    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        list(pool.map(work, pending))
+    def run_batch(batch: list[dict[str, Any]]) -> None:
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+            list(pool.map(work, batch))
+
+    run_batch(pending)
+    retried = len(retry)
+    ran = len(pending)
+    if options.get("retry_errors"):
+        attempts.clear()
+        attempts.update(_attempts(results_path))
+        second = [
+            instance for instance in instances
+            if (history := attempts.get(instance["instance_id"]))
+            and needs_retry(history[-1]) and len(history) < MAX_ATTEMPTS
+        ]
+        run_batch(second)
+        retried += len(second)
+        ran += len(second)
     _dedupe_predictions(predictions_path)
     return {
         "skipped_completed": len(done - retry),
-        "ran": len(pending),
-        "retried": len(retry),
+        "ran": ran,
+        "retried": retried,
         "predictions": str(predictions_path),
     }
 
@@ -279,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--memory", default="6g")
     parser.add_argument("--wall-cap-minutes", type=float, default=DEFAULT_WALL_CAP_SECONDS / 60)
     parser.add_argument("--retry-errors", action="store_true",
-                        help="re-run once the instances whose last attempt hit an infrastructure or provider failure")
+                        help="run an instance once more when an attempt hits an infrastructure or provider failure")
     args = parser.parse_args(argv)
 
     instances = load_instances(args.instances)[: args.limit]

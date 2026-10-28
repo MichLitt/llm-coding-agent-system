@@ -330,3 +330,28 @@ def test_crash_injection_resumes_to_the_uninterrupted_result(tmp_path, crash_ref
 def test_real_sigkill_mid_run_resumes_to_the_uninterrupted_result(tmp_path, crash_reference):
     case = run_case(tmp_path, steps=3, reference=crash_reference, sigkill_after=0.08, delay=0.05)
     assert case["passed"] is True, (case["checks"], case["stderr_tail"])
+
+
+def test_concurrent_first_opens_of_one_database_all_succeed(tmp_path):
+    # Parallel SWE-bench workers once hit "database is locked" (WAL switch) and
+    # "duplicate column name" (migration) when they opened a new store together.
+    import threading
+
+    errors = []
+    for trial in range(20):
+        path = tmp_path / f"trial-{trial}" / "run_state.db"
+        barrier = threading.Barrier(6)
+
+        def open_store():
+            barrier.wait()
+            try:
+                RunStateStore(path).close()
+            except Exception as exc:  # pragma: no cover - the failure being guarded against
+                errors.append(f"{type(exc).__name__}: {exc}")
+
+        threads = [threading.Thread(target=open_store) for _ in range(6)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    assert errors == []

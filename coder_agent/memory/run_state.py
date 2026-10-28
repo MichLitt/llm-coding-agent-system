@@ -178,12 +178,26 @@ class RunStateStore:
         # connect timeout is SQLite's busy timeout for cross-process locks.
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False, timeout=10)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._enable_wal()
         # Durable across process crashes; only an OS crash can lose the last
         # commits, which resume then treats as not-yet-checkpointed steps.
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._lock = threading.Lock()
         self.init_db()
+
+    def _enable_wal(self, attempts: int = 50) -> None:
+        # Switching the journal mode needs an exclusive lock, and SQLite reports
+        # "database is locked" at once instead of honoring the busy timeout. So
+        # concurrent first opens retry briefly. The mode persists in the file.
+        for attempt in range(attempts):
+            try:
+                if str(self._conn.execute("PRAGMA journal_mode").fetchone()[0]).lower() != "wal":
+                    self._conn.execute("PRAGMA journal_mode=WAL")
+                return
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc) or attempt == attempts - 1:
+                    raise
+                time.sleep(0.02 * (attempt + 1))
 
     def init_db(self) -> None:
         with self._lock:
@@ -191,8 +205,14 @@ class RunStateStore:
             for table, columns in _ADDITIVE_COLUMNS.items():
                 existing = {row["name"] for row in self._conn.execute(f"PRAGMA table_info({table})")}
                 for column, column_type in columns.items():
-                    if column not in existing:
+                    if column in existing:
+                        continue
+                    try:
                         self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+                    except sqlite3.OperationalError as exc:
+                        # Another connection added it between the check and the ALTER.
+                        if "duplicate column name" not in str(exc):
+                            raise
             self._conn.executescript(_POST_MIGRATION_SQL)
             self._conn.commit()
 

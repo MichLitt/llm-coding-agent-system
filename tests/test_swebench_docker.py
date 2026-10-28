@@ -199,7 +199,9 @@ def test_retry_errors_reruns_infrastructure_failures_once_and_grades_each_instan
     instances = [{"instance_id": "demo__calc-1", "problem_statement": "p"},
                  {"instance_id": "demo__down-2", "problem_statement": "p"}]
     options = {**_options(tmp_path), "retry_errors": True}
-    for _ in range(3):
+    first = run_instances(instances, options, start_sandbox=flaky_start, agent_factory=agent_factory)
+    # Later invocations find nothing left to retry: two attempts is the cap.
+    for _ in range(2):
         run_instances(instances, options, start_sandbox=flaky_start, agent_factory=agent_factory)
 
     records = [json.loads(line) for line in (tmp_path / "out/results.jsonl").read_text().splitlines()]
@@ -211,6 +213,7 @@ def test_retry_errors_reruns_infrastructure_failures_once_and_grades_each_instan
     ]
     assert [p["instance_id"] for p in predictions] == ["demo__calc-1", "demo__down-2"]
     assert "+    return a + b" in predictions[0]["model_patch"]
+    assert (first["ran"], first["retried"]) == (4, 2)
 
 
 def test_runner_records_image_provenance(tmp_path):
@@ -239,3 +242,13 @@ def test_provider_failures_are_told_apart_from_agent_failures():
     assert not is_provider_failure(record("TimeoutError", "LLM stream exceeded its total 900s timeout"))
     assert not is_provider_failure(record("LLMOutputTruncatedError"))
     assert not is_provider_failure({"termination_reason": "max_steps", "error_details": []})
+
+
+def test_default_agents_in_one_run_share_one_run_state_store(tmp_path):
+    from coder_agent.eval import swebench_docker
+
+    first = swebench_docker._shared_run_state_store(tmp_path / "out" / "run_state.db")
+    second = swebench_docker._shared_run_state_store(tmp_path / "out" / ".." / "out" / "run_state.db")
+    other = swebench_docker._shared_run_state_store(tmp_path / "other" / "run_state.db")
+    assert first is second
+    assert other is not first
