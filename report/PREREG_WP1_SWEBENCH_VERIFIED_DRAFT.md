@@ -1,9 +1,15 @@
-# WP1 Pre-registration (DRAFT) — SWE-bench Verified with official Docker grading
+# WP1 Pre-registration — SWE-bench Verified with official Docker grading
 
-Status: **draft, not frozen.** It is frozen by committing it with the decision
-in §6 resolved and every `TBD` filled, before the first formal (non-pilot) run.
-Pilot runs may happen before freezing; pilot instances are excluded from the
-formal sample.
+Status: **frozen** (2026-10-28).
+
+- **The freeze commit** is the one that set this line; it is listed by
+  `git log -- report/PREREG_WP1_SWEBENCH_VERIFIED_DRAFT.md`. The file
+  keeps its draft-era name so existing links stay valid.
+- **Later changes are amendments.** Each is dated, gives its reason, is
+  recorded under "Amendments" at the end, and is committed before the
+  runs it affects.
+- `scripts/wp1_formal.sh` refuses to start unless this line says frozen.
+- Pilot instances are excluded from the formal sample.
 
 ## 1. Question
 
@@ -39,7 +45,7 @@ minimal public agent using the same model and budget?
   - the UTF-8 locale above;
   - in-run retries and a shared run-state store.
 
-  The retry guard is unchanged.
+  The retry guard is unchanged (decided 2026-10-28; see §5).
 - Grading: `python -m swebench.harness.run_evaluation` from `swebench`
   5.0.2 (Python 3.12.3 venv on the WSL host), with
   `--predictions_path <arm>/predictions.jsonl`.
@@ -57,7 +63,17 @@ minimal public agent using the same model and budget?
   - a newly written file appeared in `diff()`.
 - Agent code: the commit recorded in each run's `manifest.json`. Code changes
   between arms are not allowed.
-- **Procedure.** `scripts/wp1_pilot.sh` runs the pilot end to end:
+- **Procedure.** `scripts/wp1_formal.sh` runs the formal run. It refuses to
+  start until this file is frozen: committed, marked frozen, with no open
+  placeholders left. In order, it:
+  1. exports the 100-instance sample (seed 20261028, excluding the pilot
+     ids);
+  2. runs A-s101 up to the §7 budget checkpoint, then the rest of A-s101,
+     then A-s202 and R;
+  3. grades each arm;
+  4. summarizes.
+
+  `scripts/wp1_pilot.sh` runs the pilot end to end:
   1. export the sample;
   2. run arm A (`coder_agent.eval.swebench_docker`);
   3. run arm R (`scripts/wp1_reference_arm.sh`);
@@ -80,7 +96,6 @@ minimal public agent using the same model and budget?
 |---|---|---|
 | A | This Agent, preset C3, `policy_mode=legacy` (the container is the sandbox), `max_steps=40`, no verification hook | 101, 202 |
 | R | mini-SWE-agent 2.4.6 (litellm 1.93.0), its default SWE-bench prompt, same model and request settings (including `thinking` disabled), step limit 40, `--network none` | 1 run |
-| B (only if §6 option 2 is chosen) | A plus a non-oracle self-verification gate, frozen before the formal run | 101, 202 |
 
 **Model (decided 2026-10-28).**
 
@@ -131,6 +146,15 @@ Arm R sends the same `thinking` field through litellm's `extra_body`.
     seed 101 against R.
   - Cost per instance from provider-reported tokens (WP0).
   - Wall time; steps; termination reasons; patch-apply failures.
+  - Termination reason against outcome, per arm (`termination_by_outcome`
+    in the summary). The aim is to show how many runs the Agent's retry
+    guard stopped, and how many of those resolved anyway.
+    - The guard (`agent.max_retries` = 3) ends a run at its fourth error
+      step. It counts cumulatively, not as a streak. It stays in arm A
+      unchanged.
+    - In the pilot, 10 of 19 arm-A runs ended this way. 5 of them were
+      unresolved, and arm R resolved 2 of those 5.
+    - Any cost of the guard is reported, not tuned away.
 - **Infrastructure failures** (image pull, container start, harness error):
   - classified separately and retried once with identical settings;
   - never counted as Agent failures, never silently dropped;
@@ -138,27 +162,58 @@ Arm R sends the same `thinking` field through litellm's `extra_body`.
 - **No early stopping** on results. All instances in all arms run, and
   negative results are reported.
 - With n = 100, only differences of roughly 10–15 percentage points are
-  detectable. A null A–R or A–B difference will be reported as such.
+  detectable. A null A–R difference will be reported as such.
 
-## 6. Open decision: the verification gate
+## 6. Decision: no verification-gate arm (decided 2026-10-28)
 
 The plan's original primary hypothesis was "verification gate on (C6) versus
-off (C3)". `EVAL_INTEGRITY_AUDIT_v0.8.0.md` shows that the existing gate uses
-the grading tests (an oracle), and that since v0.6.0 C3 and C6 are identical.
-An oracle gate is not allowed on Verified. Choose one:
+off (C3)". `EVAL_INTEGRITY_AUDIT_v0.8.0.md` shows two problems with it:
 
-1. **Drop the gate arm.** The primary result is A's absolute resolved rate plus
-   the external reference R. This is the recommended choice: cheapest, and
-   valid now.
-2. **Implement a non-oracle gate first, then add arm B.** At stop time the
-   gate would run the repository's existing tests for the files the Agent
-   changed, plus the Agent's reproduction script. This is a new feature and
-   must be frozen with its own tests before the formal run.
+- the existing gate uses the grading tests, which is an oracle and not
+  allowed on Verified;
+- since v0.6.0, C3 and C6 are identical.
+
+**Chosen option: drop the gate arm.** The primary result is arm A's
+absolute resolved rate, with arm R as the external reference.
+
+- There is no arm B.
+- WP1 makes no claim about verification gates.
+- Arm A runs without any verification hook, as §4 states.
+
+The rejected alternative was to implement a non-oracle gate first and add
+an arm B. That gate would run the repository's existing tests for the
+changed files plus the Agent's reproduction script. It was rejected because
+it is a new feature: it would have to be built, tested and piloted before
+freezing.
 
 ## 7. Budget and stopping
 
-- **Pilot first.** It measures tokens and cost per instance (WP0 accounting).
-  The formal run starts only after a hard spend cap is recorded here (TBD).
+- **Pilot first.** It measures tokens and cost per instance (WP0
+  accounting). Results are in `WP1_PILOT_2026-10-28.md`.
+- **Spend cap (decided 2026-10-28).** Pricing is not configured and the GLM
+  Coding Plan is a subscription, so the cap is stated in provider-reported
+  tokens.
+  - **Order.** Arms run in the order A-s101, A-s202, R. Arm A processes the
+    formal sample in a seeded random order (order seed 20261029, frozen in
+    each manifest), so any prefix is a fair subsample. The order does not
+    change which instances run or how they are graded.
+  - **Checkpoint.** After the first 25 instances of A-s101, whole-run usage
+    is projected as the mean usage per measured instance × 300 instance
+    runs (3 arms × 100). Instances without usage, such as infrastructure
+    failures, are left out of the mean. mini-SWE-agent does not record
+    tokens, so the projection assumes arm R uses as much as arm A.
+  - **Cap.** If projected input exceeds 45,000,000 tokens, or projected
+    output exceeds 1,000,000 tokens, the run stops.
+    - Continuing needs a dated amendment to this file, stating the new cap
+      and the reason, committed before any further instance runs.
+    - Finished instances are kept and reported.
+  - **Basis.** The pilot used about 44k–73k input and 1.6k output tokens
+    per arm-A instance. That projects about 20M input and 0.5M output for
+    the whole run, so the cap leaves at least a 2× margin; the pilot sample
+    was 80% django.
+  - **Enforcement.** `scripts/wp1_formal.sh` runs the checkpoint with
+    `coder_agent.eval.swebench_budget`. A non-zero exit stops the script,
+    and the projection is kept as `budget-checkpoint.json`.
 - **Per-instance wall cap:** 30 minutes of Agent time, from the first
   model call. A run that reaches it is stopped at the next step boundary and
   counted as a budget failure (`wall_cap`). It is graded as an empty patch,
@@ -178,3 +233,7 @@ For each arm:
 
 A versioned report gives results by seed and arm, the failure taxonomy, cost,
 and every deviation from this pre-registration.
+
+## Amendments
+
+None.
