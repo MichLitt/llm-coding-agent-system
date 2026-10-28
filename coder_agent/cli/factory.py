@@ -86,7 +86,9 @@ def make_agent(
     trajectory_store: TrajectoryStore | None = None,
     run_state_store: RunStateStore | None = None,
     preset_name: str | None = None,
+    tools: list | None = None,
 ) -> Agent:
+    """Build an Agent. ``tools`` replaces the local tool set (e.g. container tools)."""
     resolved_run_state_store = run_state_store
     if resolved_run_state_store is None and cfg.agent.enable_run_state:
         resolved_run_state_store = make_run_state_store()
@@ -104,7 +106,9 @@ def make_agent(
     )
     model_seed = resolve_model_seed(resolved_experiment_config)
     fixed_knowledge_index_id = resolve_fixed_knowledge_index_id(resolved_experiment_config)
-    mcp_servers = tuple(MCPServerConfig.from_mapping(value) for value in cfg.tools.mcp_servers)
+    mcp_servers = () if tools is not None else tuple(
+        MCPServerConfig.from_mapping(value) for value in cfg.tools.mcp_servers
+    )
 
     client = LLMClient(profile=resolved_profile)
     model_cfg = ModelConfig(
@@ -125,7 +129,7 @@ def make_agent(
         memory = MemoryManager(db_path)
 
     agent = Agent(
-        tools=build_tools(
+        tools=tools if tools is not None else build_tools(
             resolved_workspace,
             enable_knowledge_retrieval=knowledge_retrieval_policy,
             fixed_knowledge_index_id=fixed_knowledge_index_id,
