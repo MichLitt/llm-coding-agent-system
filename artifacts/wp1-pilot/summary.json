@@ -1,0 +1,204 @@
+{
+  "arms": [
+    {
+      "arm": "A-s101",
+      "duration_seconds": {
+        "max": 225.2,
+        "mean": 74.9,
+        "median": 58.5,
+        "p90": 111.3
+      },
+      "failure_ids": {
+        "harness_error": [],
+        "infra_error": [
+          "django__django-11490"
+        ],
+        "not_graded": [],
+        "provider_error": [],
+        "wall_cap": []
+      },
+      "n": 10,
+      "outcome_counts": {
+        "empty_patch": 0,
+        "harness_error": 0,
+        "infra_error": 1,
+        "not_graded": 0,
+        "provider_error": 0,
+        "resolved": 7,
+        "unresolved": 2,
+        "wall_cap": 0
+      },
+      "provenance": {
+        "distinct_image_ids": 10,
+        "harness_report_sha256": "d5fdd2234830cab6a0fe4dc22641cf3e780eafd3b30f0252ba72c456ee65180d",
+        "harness_schema_version": 2,
+        "manifest": {
+          "agent_commit": "8365c15",
+          "cpus": 2.0,
+          "experiment_config": {
+            "model_seed": 101,
+            "policy_mode": "legacy"
+          },
+          "instances_file_sha256": "c22e3fae707df9a41112a2e077ac180c9d158966b18553d8aef04822af478608",
+          "label": "wp1-pilot-A-s101",
+          "llm_profile": "glm_5_nothink",
+          "max_steps": 40,
+          "memory": "6g",
+          "model_settings": {
+            "base_url": "https://api.z.ai/api/coding/paas/v4",
+            "extra_body": {
+              "thinking": {
+                "type": "disabled"
+              }
+            },
+            "max_tokens": 8192,
+            "temperature": 0.2
+          },
+          "network": "none",
+          "preset": "C3",
+          "wall_cap_seconds": 1800.0
+        },
+        "predictions_sha256": "206ca7a88d8f3fc1da309c29dbac109ba8616fc39e2aa406f8e4b958c821da4e"
+      },
+      "resolved": 7,
+      "resolved_rate": 0.7,
+      "resolved_rate_wilson95": [
+        0.3968,
+        0.8922
+      ],
+      "retried_instances": [],
+      "run_dir": "runs/wp1/pilot/A-s101",
+      "steps": {
+        "max": 40,
+        "mean": 14.7,
+        "median": 13,
+        "p90": 40
+      },
+      "termination_reasons": {
+        "model_stop": 4,
+        "retry_exhausted": 5
+      },
+      "usage": {
+        "cached_input_tokens": 610816,
+        "estimated_cost_usd": null,
+        "input_tokens": 658429,
+        "llm_calls": 132,
+        "output_tokens": 14172,
+        "token_usage_status": {
+          "provider": 9
+        }
+      },
+      "warnings": []
+    },
+    {
+      "arm": "R",
+      "duration_seconds": null,
+      "failure_ids": {
+        "harness_error": [],
+        "infra_error": [],
+        "not_graded": [],
+        "provider_error": [],
+        "wall_cap": []
+      },
+      "n": 10,
+      "outcome_counts": {
+        "empty_patch": 0,
+        "harness_error": 0,
+        "infra_error": 0,
+        "not_graded": 0,
+        "provider_error": 0,
+        "resolved": 8,
+        "unresolved": 2,
+        "wall_cap": 0
+      },
+      "provenance": {
+        "distinct_image_ids": 0,
+        "harness_report_sha256": "860f905318dc85d99113e916be1979994edba98be13aa264149fac4205eaccea",
+        "harness_schema_version": 2,
+        "manifest": null,
+        "predictions_sha256": "2ccb84e4d0d6e51c2d9a49b9165612c9995bc0fafa84f59585124384660f7ad4"
+      },
+      "resolved": 8,
+      "resolved_rate": 0.8,
+      "resolved_rate_wilson95": [
+        0.4902,
+        0.9433
+      ],
+      "retried_instances": [],
+      "run_dir": "runs/wp1/pilot/R",
+      "steps": null,
+      "termination_reasons": {},
+      "usage": {
+        "cached_input_tokens": null,
+        "estimated_cost_usd": null,
+        "input_tokens": null,
+        "llm_calls": null,
+        "output_tokens": null,
+        "token_usage_status": {}
+      },
+      "warnings": []
+    }
+  ],
+  "instances_file": "runs/wp1/pilot/pilot.jsonl",
+  "instances_file_sha256": "c22e3fae707df9a41112a2e077ac180c9d158966b18553d8aef04822af478608",
+  "n": 10,
+  "pairs": [
+    {
+      "both_resolved": 7,
+      "exact_mcnemar_p": 1.0,
+      "first": "A-s101",
+      "neither": 2,
+      "only_first": 0,
+      "only_second": 1,
+      "rate_difference": -0.1,
+      "rate_difference_bootstrap95": [
+        -0.3,
+        0.0
+      ],
+      "second": "R"
+    }
+  ],
+  "per_instance": {
+    "django__django-10914": {
+      "A-s101": "resolved",
+      "R": "resolved"
+    },
+    "django__django-11490": {
+      "A-s101": "infra_error",
+      "R": "resolved"
+    },
+    "django__django-11951": {
+      "A-s101": "resolved",
+      "R": "resolved"
+    },
+    "django__django-12276": {
+      "A-s101": "resolved",
+      "R": "resolved"
+    },
+    "django__django-13089": {
+      "A-s101": "resolved",
+      "R": "resolved"
+    },
+    "django__django-13109": {
+      "A-s101": "resolved",
+      "R": "resolved"
+    },
+    "django__django-13512": {
+      "A-s101": "unresolved",
+      "R": "unresolved"
+    },
+    "django__django-15916": {
+      "A-s101": "unresolved",
+      "R": "unresolved"
+    },
+    "pydata__xarray-4356": {
+      "A-s101": "resolved",
+      "R": "resolved"
+    },
+    "sphinx-doc__sphinx-9230": {
+      "A-s101": "resolved",
+      "R": "resolved"
+    }
+  },
+  "schema_version": "swebench-summary/v1"
+}

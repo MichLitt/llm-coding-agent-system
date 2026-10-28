@@ -28,9 +28,18 @@ minimal public agent using the same model and budget?
 - Host: WSL2 Ubuntu 24.04, x86_64, 24 CPUs, 31 GB RAM.
 - Docker Engine: version recorded at run time.
 - Per-instance container from `swebench/sweb.eval.x86_64.<id>:latest`, with
-  `--network none`, 2 CPUs, 6 GB memory, `--pids-limit 1024` and
-  `no-new-privileges`. Tools run through `docker exec`
+  `--network none`, 2 CPUs, 6 GB memory, `--pids-limit 1024`,
+  `no-new-privileges` and a UTF-8 locale (`LANG`/`LC_ALL=C.UTF-8`, added
+  after the pilot). Tools run through `docker exec`
   (`coder_agent/tools/container.py`).
+- Changes after the pilot (`WP1_PILOT_2026-10-28.md`), all made before
+  freezing:
+  - no-op edits are rejected;
+  - missing tool arguments are named;
+  - the UTF-8 locale above;
+  - in-run retries and a shared run-state store.
+
+  The retry guard is unchanged.
 - Grading: `python -m swebench.harness.run_evaluation` from `swebench`
   5.0.2 (Python 3.12.3 venv on the WSL host), with
   `--predictions_path <arm>/predictions.jsonl`.

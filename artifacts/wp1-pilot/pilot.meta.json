@@ -1,0 +1,21 @@
+{
+  "dataset": "SWE-bench/SWE-bench_Verified",
+  "split": "test",
+  "dataset_fingerprint": "2cee1d06dbc301e8",
+  "dataset_rows": 500,
+  "seed": 20261027,
+  "sample": 10,
+  "excluded": [],
+  "instance_ids": [
+    "django__django-10914",
+    "django__django-11490",
+    "django__django-11951",
+    "django__django-12276",
+    "django__django-13089",
+    "django__django-13109",
+    "django__django-13512",
+    "django__django-15916",
+    "pydata__xarray-4356",
+    "sphinx-doc__sphinx-9230"
+  ]
+}
