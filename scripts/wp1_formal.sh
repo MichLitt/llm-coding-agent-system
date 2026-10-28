@@ -8,7 +8,8 @@
 #
 # Arms run in order A-s101, A-s202, R. Budget checkpoint (§7): after the first
 # 25 instances of A-s101, whole-run usage is projected, and the run stops if it
-# exceeds 45M input or 1M output tokens. Re-running resumes every step.
+# exceeds 45M input or 2M output tokens (output cap raised by Amendment 1).
+# Re-running resumes every step.
 # Overrides: HARNESS_PY, OUT, WORKERS, HARNESS_WORKERS, PILOT_IDS.
 set -euo pipefail
 source "$(dirname "$0")/wp1_lib.sh"
@@ -44,7 +45,7 @@ run_arm_a() {  # run_arm_a SEED [extra runner arguments]
 if [ ! -f "$OUT/budget-checkpoint.json" ]; then
   run_arm_a 101 --stop-after 25
   if ! uv run --frozen python -m coder_agent.eval.swebench_budget --run-dir "$OUT/A-s101" \
-      --instance-runs "$INSTANCE_RUNS" --max-input-tokens 45000000 --max-output-tokens 1000000 \
+      --instance-runs "$INSTANCE_RUNS" --max-input-tokens 45000000 --max-output-tokens 2000000 \
       > "$OUT/budget-checkpoint.pending.json"; then
     cat "$OUT/budget-checkpoint.pending.json"
     echo "budget checkpoint not passed: stop and re-evaluate (pre-registration §7)" >&2

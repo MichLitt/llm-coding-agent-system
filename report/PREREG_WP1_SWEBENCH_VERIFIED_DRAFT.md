@@ -203,7 +203,8 @@ freezing.
     failures, are left out of the mean. mini-SWE-agent does not record
     tokens, so the projection assumes arm R uses as much as arm A.
   - **Cap.** If projected input exceeds 45,000,000 tokens, or projected
-    output exceeds 1,000,000 tokens, the run stops.
+    output exceeds 2,000,000 tokens, the run stops. The output cap was
+    1,000,000 at freezing; Amendment 1 raised it.
     - Continuing needs a dated amendment to this file, stating the new cap
       and the reason, committed before any further instance runs.
     - Finished instances are kept and reported.
@@ -236,4 +237,42 @@ and every deviation from this pre-registration.
 
 ## Amendments
 
-None.
+### Amendment 1 (2026-10-28): output cap raised to 2M tokens
+
+**What changed.**
+
+- §7 output cap: 1,000,000 → 2,000,000 tokens. The input cap stays at
+  45,000,000.
+- `--stop-after N` now runs only the first N instances of the processing
+  order (commit `4238fba`). It used to run the next N unfinished
+  instances, so rerunning `scripts/wp1_formal.sh` after the stop would
+  have run instances 26–50 before any new check.
+
+**Why.** The checkpoint stopped the run as designed. After the first 25
+instances of A-s101 (agent `ad4964e`):
+
+| | Mean per instance | Projected, 300 runs | Cap at freezing |
+|---|---|---|---|
+| Input tokens | 75,345 | 22,603,560 | 45,000,000 |
+| Output tokens | 3,520 | 1,055,916 | 1,000,000 |
+
+- Only output exceeded its cap, by 5.6%. Input is at half of its cap.
+- Output per instance was about 2.2× the pilot's (about 1,600), and input
+  was at the top of the pilot's range. The pilot report warned that its
+  sample, 80% django, could understate cost.
+- The new cap leaves about 1.9× margin over the measured projection, close
+  to the 2× margin the original cap left over the pilot projection.
+- The decision used only the projection above. No formal instance had been
+  graded (the script grades an arm only after it finishes).
+
+**Effect on the run.**
+
+- The 25 finished instances are kept. Rerunning `scripts/wp1_formal.sh`
+  repeats the checkpoint on the same 25 instances against the new cap,
+  without running any instance, and then continues.
+- Code changed after `ad4964e`: the runner's `--stop-after` and its test,
+  the cap in `scripts/wp1_formal.sh`, and this file. The Agent loop,
+  tools, prompts and `config.yaml` are unchanged.
+- The runner rewrites `agent_commit` in `manifest.json` when it resumes,
+  so the A-s101 manifest will name this amendment's commit. Its first 25
+  instances ran at `ad4964e`.
