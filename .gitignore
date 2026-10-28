@@ -8,6 +8,8 @@ workspace/
 trajectories/
 results/
 results_mbpp/
+# Raw SWE-bench Docker runs (patches, trajectories, harness logs); summaries go to artifacts/
+/runs/
 __pycache__/
 *.pyc
 *.db

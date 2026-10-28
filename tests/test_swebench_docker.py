@@ -8,7 +8,7 @@ from coder_agent.config import LLMProfile
 from coder_agent.core.agent import Agent
 from coder_agent.core.agent_types import ModelConfig
 from coder_agent.core.llm_client import LLMClient
-from coder_agent.eval.swebench_docker import PROMPT_TEMPLATE, load_instances, run_instances
+from coder_agent.eval.swebench_docker import PROMPT_TEMPLATE, is_provider_failure, load_instances, run_instances
 from coder_agent.tools.container import DockerSandbox, build_container_tools
 from tests.test_container_tools import FakeDocker
 
@@ -92,7 +92,9 @@ def test_runner_resumes_and_isolates_instance_failures(tmp_path):
 
     records = {r["instance_id"]: r for r in map(json.loads, (tmp_path / "out/results.jsonl").read_text().splitlines())}
     predictions = [json.loads(line) for line in (tmp_path / "out/predictions.jsonl").read_text().splitlines()]
-    assert summary == {"skipped_completed": 1, "ran": 1, "predictions": str(tmp_path / "out/predictions.jsonl")}
+    assert summary == {
+        "skipped_completed": 1, "ran": 1, "retried": 0, "predictions": str(tmp_path / "out/predictions.jsonl"),
+    }
     assert [p["instance_id"] for p in predictions] == ["demo__calc-1", "demo__broken-2"]
     assert predictions[1]["model_patch"] == ""
     assert records["demo__broken-2"]["error"] == "RuntimeError: image not found"
@@ -145,3 +147,94 @@ def test_manifest_records_the_profile_request_fields(tmp_path, monkeypatch):
 
     manifest = json.loads((tmp_path / "out/manifest.json").read_text())
     assert manifest["model_settings"]["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+class _EndlessBackend:
+    """Patches once, then keeps listing the directory: never finishes on its own."""
+
+    def __init__(self, delay):
+        self.delay = delay
+
+    async def chat(self, *, messages, **_kwargs):
+        import asyncio
+
+        await asyncio.sleep(self.delay)
+        if not any(message.get("role") == "assistant" for message in messages):
+            call = {"id": "c0", "name": "patch_file",
+                    "input": {"path": "calc.py", "edits": [{"old_text": "a - b", "new_text": "a + b"}]}}
+        else:
+            call = {"id": f"c{len(messages)}", "name": "list_dir", "input": {"path": "."}}
+        return {"content": [], "tool_uses": [call], "parse_errors": [], "usage": {"input_tokens": 1, "output_tokens": 1}}
+
+    async def aclose(self):
+        return None
+
+
+def test_wall_cap_stops_the_run_and_discards_its_patch(tmp_path):
+    start_sandbox, agent_factory = _factories(tmp_path, _EndlessBackend(delay=0.05))
+    options = {**_options(tmp_path), "max_steps": 500, "wall_cap_seconds": 0.4}
+
+    run_instances([{"instance_id": "demo__calc-1", "problem_statement": "p"}], options,
+                  start_sandbox=start_sandbox, agent_factory=agent_factory)
+
+    [record] = [json.loads(line) for line in (tmp_path / "out/results.jsonl").read_text().splitlines()]
+    [prediction] = [json.loads(line) for line in (tmp_path / "out/predictions.jsonl").read_text().splitlines()]
+    assert record["budget_failure"] == "wall_cap"
+    assert record["termination_reason"] == "cancelled"
+    assert prediction["model_patch"] == ""
+    assert "+    return a + b" in (tmp_path / "out/discarded_patches/demo__calc-1.diff").read_text()
+
+
+def test_retry_errors_reruns_infrastructure_failures_once_and_grades_each_instance_once(tmp_path):
+    start_sandbox, agent_factory = _factories(tmp_path, _FixBackend())
+    starts = {"demo__calc-1": 0, "demo__down-2": 0}
+
+    def flaky_start(instance_id, options):
+        starts[instance_id] += 1
+        if instance_id == "demo__down-2" or starts[instance_id] == 1:
+            raise RuntimeError("image pull failed")
+        return start_sandbox(instance_id, options)
+
+    instances = [{"instance_id": "demo__calc-1", "problem_statement": "p"},
+                 {"instance_id": "demo__down-2", "problem_statement": "p"}]
+    options = {**_options(tmp_path), "retry_errors": True}
+    for _ in range(3):
+        run_instances(instances, options, start_sandbox=flaky_start, agent_factory=agent_factory)
+
+    records = [json.loads(line) for line in (tmp_path / "out/results.jsonl").read_text().splitlines()]
+    predictions = [json.loads(line) for line in (tmp_path / "out/predictions.jsonl").read_text().splitlines()]
+    assert starts == {"demo__calc-1": 2, "demo__down-2": 2}
+    assert [(r["instance_id"], r["attempt"], r["error"] is None) for r in records] == [
+        ("demo__calc-1", 1, False), ("demo__down-2", 1, False),
+        ("demo__calc-1", 2, True), ("demo__down-2", 2, False),
+    ]
+    assert [p["instance_id"] for p in predictions] == ["demo__calc-1", "demo__down-2"]
+    assert "+    return a + b" in predictions[0]["model_patch"]
+
+
+def test_runner_records_image_provenance(tmp_path):
+    def start_sandbox(instance_id, options):
+        root = tmp_path / "containers" / instance_id
+        _git_repo(root)
+        return DockerSandbox(instance_id, runner=FakeDocker(root), timeout_wrapper=False, image="swebench/demo:latest")
+
+    _, agent_factory = _factories(tmp_path, _FixBackend())
+    run_instances([{"instance_id": "demo__calc-1", "problem_statement": "p"}], _options(tmp_path),
+                  start_sandbox=start_sandbox, agent_factory=agent_factory)
+
+    [record] = [json.loads(line) for line in (tmp_path / "out/results.jsonl").read_text().splitlines()]
+    assert record["image"] == {
+        "image": "swebench/demo:latest", "image_id": "sha256:feed", "repo_digests": ["swebench/demo@sha256:beef"],
+    }
+
+
+def test_provider_failures_are_told_apart_from_agent_failures():
+    def record(error_class, message=""):
+        return {"termination_reason": "loop_exception",
+                "error_details": [f"Exception stage: llm.chat\nException class: {error_class}\nMessage: {message}"]}
+
+    assert is_provider_failure(record("RateLimitError"))
+    assert is_provider_failure(record("TimeoutError", "LLM stream exceeded its idle 120s timeout"))
+    assert not is_provider_failure(record("TimeoutError", "LLM stream exceeded its total 900s timeout"))
+    assert not is_provider_failure(record("LLMOutputTruncatedError"))
+    assert not is_provider_failure({"termination_reason": "max_steps", "error_details": []})

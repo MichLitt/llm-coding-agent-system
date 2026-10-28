@@ -65,6 +65,7 @@ class DockerSandbox:
         docker: str = "docker",
         runner: Runner = subprocess_runner,
         timeout_wrapper: bool = True,
+        image: str | None = None,
     ) -> None:
         self.container = container
         self.workdir = workdir
@@ -72,6 +73,7 @@ class DockerSandbox:
         self.docker = docker
         self.runner = runner
         self.timeout_wrapper = timeout_wrapper
+        self.image = image
 
     @classmethod
     def start(
@@ -104,8 +106,20 @@ class DockerSandbox:
             raise RuntimeError(f"docker run failed ({code}): {_decode_output(stderr).strip()}")
         return cls(
             _decode_output(stdout).strip(), workdir=workdir, env_setup=env_setup,
-            docker=docker, runner=runner, timeout_wrapper=timeout_wrapper,
+            docker=docker, runner=runner, timeout_wrapper=timeout_wrapper, image=image,
         )
+
+    def image_provenance(self) -> dict[str, Any] | None:
+        """Local image id and registry digests of the image, for run provenance."""
+        if not self.image:
+            return None
+        code, stdout, _ = self.runner(
+            [self.docker, "image", "inspect", "--format", '{{.Id}}|{{join .RepoDigests ","}}', self.image], None, 60
+        )
+        if code != 0:
+            return None
+        image_id, _, digests = _decode_output(stdout).strip().partition("|")
+        return {"image": self.image, "image_id": image_id, "repo_digests": [d for d in digests.split(",") if d]}
 
     def exec(self, script: str, *, timeout: int = 30, stdin: bytes | None = None, setup: bool = True) -> tuple[int, bytes, bytes]:
         body = f"{self.env_setup}\n{script}" if setup and self.env_setup else script

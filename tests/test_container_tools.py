@@ -42,6 +42,8 @@ class FakeDocker:
             return 0, b"cid-1\n", b""
         if argv[1] == "rm":
             return 0, b"", b""
+        if argv[1] == "image":
+            return 0, b"sha256:feed|swebench/demo@sha256:beef\n", b""
         assert argv[1] == "exec"
         script = argv[-1].replace("/testbed", str(self.root))
         proc = subprocess.run(["bash", "-c", script], input=stdin, capture_output=True, cwd=self.root, timeout=timeout)
