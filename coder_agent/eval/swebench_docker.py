@@ -251,7 +251,11 @@ def run_instances(
     output: Path = options["output"]
     output.mkdir(parents=True, exist_ok=True)
     predictions_path, results_path = output / "predictions.jsonl", output / "results.jsonl"
-    done = _completed_ids(predictions_path)
+    if options.get("stop_after") is not None:
+        # A prefix of the processing order, whatever already ran: rerunning a
+        # checkpoint invocation must never go past the checkpoint instances.
+        instances = instances[: options["stop_after"]]
+    done = _completed_ids(predictions_path) & {instance["instance_id"] for instance in instances}
     attempts = _attempts(results_path)
     retry = set()
     if options.get("retry_errors"):
@@ -263,8 +267,6 @@ def run_instances(
         instance for instance in instances
         if instance["instance_id"] not in done or instance["instance_id"] in retry
     ]
-    if options.get("stop_after") is not None:
-        pending = pending[: options["stop_after"]]
     lock = threading.Lock()
 
     def work(instance: dict[str, Any]) -> None:
@@ -324,7 +326,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--order-seed", type=int,
                         help="process instances in a seeded random order (frozen in the manifest)")
     parser.add_argument("--stop-after", type=int,
-                        help="run at most this many pending instances in this invocation, e.g. for a budget checkpoint")
+                        help="only run the first N instances of the processing order (resuming any that are "
+                             "unfinished), e.g. for a budget checkpoint")
     args = parser.parse_args(argv)
 
     instances = load_instances(args.instances)[: args.limit]

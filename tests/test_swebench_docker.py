@@ -305,3 +305,19 @@ def test_stop_after_limits_one_invocation(tmp_path):
                           start_sandbox=start_sandbox, agent_factory=agent_factory)
     second = run_instances(instances, _options(tmp_path), start_sandbox=start_sandbox, agent_factory=agent_factory)
     assert (first["ran"], second["skipped_completed"], second["ran"]) == (2, 2, 1)
+
+
+def test_rerunning_a_stop_after_invocation_never_goes_past_its_prefix(tmp_path):
+    start_sandbox, agent_factory = _factories(tmp_path, _FixBackend())
+    instances = [{"instance_id": f"demo__calc-{n}", "problem_statement": "p"} for n in range(1, 5)]
+
+    def checkpoint(n):
+        return run_instances(instances, {**_options(tmp_path), "stop_after": n},
+                             start_sandbox=start_sandbox, agent_factory=agent_factory)
+
+    assert checkpoint(1)["ran"] == 1  # interrupted after one of the two checkpoint instances
+    assert checkpoint(2)["ran"] == 1  # resumes only the rest of the prefix
+    rerun = checkpoint(2)  # e.g. after a stopped checkpoint
+    assert (rerun["skipped_completed"], rerun["ran"]) == (2, 0)
+    ran = [json.loads(line)["instance_id"] for line in (tmp_path / "out" / "predictions.jsonl").open()]
+    assert ran == ["demo__calc-1", "demo__calc-2"]
