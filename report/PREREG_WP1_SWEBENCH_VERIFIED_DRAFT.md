@@ -48,13 +48,23 @@ minimal public agent using the same model and budget?
   - a newly written file appeared in `diff()`.
 - Agent code: the commit recorded in each run's `manifest.json`. Code changes
   between arms are not allowed.
+- **Procedure.** `scripts/wp1_pilot.sh` runs the pilot end to end:
+  1. export the sample;
+  2. run arm A (`coder_agent.eval.swebench_docker`);
+  3. run arm R (`scripts/wp1_reference_arm.sh`);
+  4. grade both with the harness;
+  5. summarize with `coder_agent.eval.swebench_summary`.
+
+  The summary recomputes every reported number from the run directories
+  and records each arm's commit, model settings, instance-file hash,
+  harness-report hash and image ids.
 
 ## 4. Arms
 
 | Arm | Configuration | Seeds |
 |---|---|---|
 | A | This Agent, preset C3, `policy_mode=legacy` (the container is the sandbox), `max_steps=40`, no verification hook | 101, 202 |
-| R | mini-SWE-agent (version TBD, pinned), same model and request settings (including `thinking` disabled), step limit 40, default prompt | 1 run |
+| R | mini-SWE-agent 2.4.6 (litellm 1.93.0), its default SWE-bench prompt, same model and request settings (including `thinking` disabled), step limit 40, `--network none` | 1 run |
 | B (only if §6 option 2 is chosen) | A plus a non-oracle self-verification gate, frozen before the formal run | 101, 202 |
 
 **Model (decided 2026-10-28).**
@@ -79,9 +89,22 @@ Why thinking is disabled (`EVAL_INTEGRITY_AUDIT_v0.8.0.md`, Finding 3):
 The pilot uses the same profile. Thinking on with preserved reasoning is
 not tested in WP1; a result here says nothing about it.
 
-Arm R sends the same `thinking` field through its model client's extra
-request parameters. Its config file is archived with the run, and its
-first request is checked to confirm the field is present.
+Arm R sends the same `thinking` field through litellm's `extra_body`.
+
+- **Config.** `scripts/wp1_mini_swe_agent.yaml` is layered on
+  mini-SWE-agent's built-in `swebench.yaml`, and the API base comes from
+  the `glm_5_nothink` profile.
+- **Preflight** (`scripts/wp1_reference_preflight.py`):
+  - checks the merged config: step limit 40, no network, thinking
+    disabled, `max_tokens` 8192;
+  - sends one 64-token request through mini-SWE-agent's own model class,
+    which must not stop at the length limit while reasoning. Measured on
+    2026-10-28: `finish_reason=stop`, 0 reasoning tokens.
+- **Archived with the run:** both config files and the venv's package
+  list.
+- **Why litellm is pinned.** mini-SWE-agent sets no upper bound on it, and
+  the newest release at the time (1.106.5) failed on import without the
+  optional `mcp` package.
 
 ## 5. Measures and analysis
 
@@ -121,8 +144,14 @@ An oracle gate is not allowed on Verified. Choose one:
 
 - **Pilot first.** It measures tokens and cost per instance (WP0 accounting).
   The formal run starts only after a hard spend cap is recorded here (TBD).
-- **Per-instance wall cap:** 30 minutes. A run that exceeds it is a budget
-  failure for that instance, reported in its own category.
+- **Per-instance wall cap:** 30 minutes of Agent time, from the first
+  model call. A run that reaches it is stopped at the next step boundary and
+  counted as a budget failure (`wall_cap`). It is graded as an empty patch,
+  and its partial patch is kept under `discarded_patches/`.
+- **Retries.** Infrastructure failures (runner exceptions) and provider
+  failures (connection, rate-limit, server and idle-stream errors) are
+  retried once with `--retry-errors`. Every attempt stays in
+  `results.jsonl`, and only the last prediction per instance is graded.
 
 ## 8. Outputs
 
