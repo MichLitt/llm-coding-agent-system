@@ -14,7 +14,7 @@ import pytest
 from coder_agent.config import LLMProfile, ModelPricing, resolve_llm_profile
 from coder_agent.core.agent import Agent
 from coder_agent.core.agent_types import ModelConfig
-from coder_agent.core.llm_client import LLMClient, _AnthropicBackend, _OpenAIBackend
+from coder_agent.core.llm_client import LLMClient, LLMOutputTruncatedError, _AnthropicBackend, _OpenAIBackend
 from coder_agent.core.usage import (
     LLMUsage,
     UsageTotals,
@@ -262,7 +262,10 @@ class _ScriptedBackend:
 
     async def chat(self, **kwargs):
         self.calls += 1
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return response
 
     async def aclose(self):
         return None
@@ -313,6 +316,42 @@ def test_llm_client_accumulates_reported_and_unreported_calls():
 
     asyncio.run(_two_calls())
     assert client.usage == UsageTotals(llm_calls=2, reported_calls=1, input_tokens=10, output_tokens=2)
+
+
+def test_llm_client_counts_a_failed_call_as_attempted_without_usage():
+    client = _scripted_client([
+        _response(text="a", usage={"input_tokens": 10, "output_tokens": 2}),
+        TimeoutError("LLM stream exceeded its total 900s timeout"),
+    ])
+
+    async def _two_calls():
+        await client.chat(messages=[], system="s", tools=[], model="m", max_tokens=8, temperature=0.0)
+        with pytest.raises(TimeoutError):
+            await client.chat(messages=[], system="s", tools=[], model="m", max_tokens=8, temperature=0.0)
+
+    asyncio.run(_two_calls())
+    assert client.usage == UsageTotals(llm_calls=2, reported_calls=1, input_tokens=10, output_tokens=2)
+    assert client.usage.status == "partial"
+
+
+def test_llm_client_raises_on_empty_truncated_response_but_keeps_its_usage():
+    truncated = {**_response(usage={"input_tokens": 40, "output_tokens": 8192}), "truncated": True}
+    usable = {
+        **_response(tool_uses=[{"id": "c1", "name": "read_file", "input": {}}],
+                    usage={"input_tokens": 50, "output_tokens": 8192}),
+        "truncated": True,
+    }
+    client = _scripted_client([truncated, usable])
+
+    async def _calls():
+        with pytest.raises(LLMOutputTruncatedError, match="max_tokens=8192"):
+            await client.chat(messages=[], system="s", tools=[], model="m", max_tokens=8192, temperature=0.0)
+        # A complete tool call survived the cut, so the response is usable.
+        return await client.chat(messages=[], system="s", tools=[], model="m", max_tokens=8192, temperature=0.0)
+
+    response = asyncio.run(_calls())
+    assert response["tool_uses"][0]["name"] == "read_file"
+    assert client.usage == UsageTotals(llm_calls=2, reported_calls=2, input_tokens=90, output_tokens=16384)
 
 
 class _CapturingEvalOps:
@@ -385,6 +424,42 @@ def test_agent_run_reports_null_tokens_when_provider_reports_none(tmp_path):
     assert run["input_tokens"] is None
     assert run["token_usage_status"] == "unavailable"
     assert _CapturingEvalOps.reports[0].total_tokens is None
+
+
+def test_agent_run_marks_usage_partial_when_an_llm_call_fails(tmp_path):
+    # The aborted call's tokens are unknown, so the run must not claim complete provider usage.
+    store = RunStateStore(tmp_path / "run_state.db")
+    client = _scripted_client([
+        _response(
+            text="look first",
+            tool_uses=[{"id": "call_1", "name": "read_file", "input": {"path": "a.py"}}],
+            usage={"input_tokens": 1000, "output_tokens": 50},
+        ),
+        TimeoutError("LLM stream exceeded its idle 120s timeout"),
+    ])
+
+    result = _agent(client, store).run("fix it", run_id="run-aborted", record_memory=False)
+
+    assert result.termination_reason == "loop_exception"
+    assert result.usage["llm_calls"] == 2
+    assert result.usage["usage_reported_calls"] == 1
+    assert result.usage["token_usage_status"] == "partial"
+    assert result.usage["input_tokens"] == 1000
+    assert store.get_run("run-aborted")["token_usage_status"] == "partial"
+
+
+def test_agent_run_stops_after_one_empty_truncated_response(tmp_path):
+    # Without the guard, an empty reply re-enters the loop and every step burns max_tokens.
+    store = RunStateStore(tmp_path / "run_state.db")
+    truncated = {**_response(usage={"input_tokens": 1500, "output_tokens": 8192}), "truncated": True}
+    client = _scripted_client([truncated, _response(text="unreachable")])
+
+    result = _agent(client, store).run("fix it", run_id="run-truncated", record_memory=False)
+
+    assert result.termination_reason == "loop_exception"
+    assert client._backend.calls == 1
+    assert result.usage["token_usage_status"] == "provider"
+    assert result.usage["output_tokens"] == 8192
 
 
 def test_resumed_run_adds_usage_recorded_before_interruption(tmp_path):

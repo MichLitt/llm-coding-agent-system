@@ -212,9 +212,97 @@ async def test_openai_backend_chat_bounds_stalled_stream():
         chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
     )
     backend._client_loop_id = id(asyncio.get_running_loop())
-    backend._request_timeout_seconds = 0.01
+    backend._stream_idle_timeout_seconds = 0.01
 
-    with pytest.raises(TimeoutError):
+    with pytest.raises(TimeoutError, match="idle"):
+        await backend.chat(
+            messages=[], system="system", tools=[], model="test-model", max_tokens=128, temperature=0.0
+        )
+
+
+def _ticking_backend(chunk_count, interval, *, idle, total):
+    """Backend whose stream yields a text chunk every ``interval`` seconds."""
+
+    class TickingStream:
+        def __init__(self):
+            self.remaining = chunk_count
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self.remaining == 0:
+                raise StopAsyncIteration
+            self.remaining -= 1
+            await asyncio.sleep(interval)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(delta=SimpleNamespace(content="x", tool_calls=None))], usage=None
+            )
+
+    async def fake_create(**_kwargs):
+        return TickingStream()
+
+    backend = _OpenAIBackend.__new__(_OpenAIBackend)
+    backend._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create)))
+    backend._client_loop_id = id(asyncio.get_running_loop())
+    backend._stream_idle_timeout_seconds = idle
+    backend._stream_total_timeout_seconds = total
+    return backend
+
+
+@pytest.mark.asyncio
+async def test_openai_backend_chat_keeps_a_slow_but_live_stream():
+    # Reasoning models stream for minutes; only silence should end the call.
+    backend = _ticking_backend(10, 0.03, idle=0.15, total=5.0)
+
+    response = await backend.chat(
+        messages=[], system="system", tools=[], model="test-model", max_tokens=128, temperature=0.0
+    )
+
+    assert response["content"] == [{"type": "text", "text": "x" * 10}]
+
+
+@pytest.mark.asyncio
+async def test_openai_backend_reports_truncation_when_reasoning_exhausts_max_tokens():
+    # GLM-5.1 streams reasoning in delta.reasoning_content; content stays empty.
+    chunks = [
+        SimpleNamespace(choices=[SimpleNamespace(
+            delta=SimpleNamespace(content=None, tool_calls=None, reasoning_content="thinking..."),
+            finish_reason=None)], usage=None),
+        SimpleNamespace(choices=[SimpleNamespace(
+            delta=SimpleNamespace(content=None, tool_calls=None, reasoning_content="more"),
+            finish_reason="length")], usage=None),
+    ]
+
+    class FakeStream:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not chunks:
+                raise StopAsyncIteration
+            return chunks.pop(0)
+
+    async def fake_create(**_kwargs):
+        return FakeStream()
+
+    backend = _OpenAIBackend.__new__(_OpenAIBackend)
+    backend._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create)))
+    backend._client_loop_id = id(asyncio.get_running_loop())
+
+    response = await backend.chat(
+        messages=[], system="system", tools=[], model="test-model", max_tokens=64, temperature=0.0
+    )
+
+    assert response["truncated"] is True
+    assert response["content"] == [] and response["tool_uses"] == []
+
+
+@pytest.mark.asyncio
+async def test_openai_backend_chat_bounds_total_stream_time():
+    backend = _ticking_backend(10_000, 0.01, idle=1.0, total=0.1)
+
+    with pytest.raises(TimeoutError, match="total"):
         await backend.chat(
             messages=[], system="system", tools=[], model="test-model", max_tokens=128, temperature=0.0
         )

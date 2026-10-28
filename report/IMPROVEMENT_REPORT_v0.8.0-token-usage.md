@@ -67,8 +67,13 @@ workspace path gives `len(system_prompt) // 4 == 968`. The G3 evidence averages
 | `partial` | Some calls returned usage | Lower bounds |
 | `unavailable` | No call returned usage | `null` (never estimated) |
 
-Calls that raise before returning are not counted; provider-side billing for
-failed requests is not observable from the client.
+A call that raises, for example a stream timeout, is counted as attempted with
+unreported usage, so the run reads `partial`. The tokens it consumed are not
+observable from the client.
+
+This was added after the WP2 Custom-40 runs (`EVAL_INTEGRITY_AUDIT_v0.8.0.md`,
+Finding 3). Before it, an aborted call was not counted at all, and a run with
+one could still read `provider`.
 
 ## Rebaseline decision
 

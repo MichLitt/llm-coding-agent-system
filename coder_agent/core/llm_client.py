@@ -11,6 +11,7 @@ Both backends normalise responses to the same dict:
         "tool_uses":    [{"id": "...", "name": "...", "input": {...}}],
         "parse_errors": ["..."],
         "usage":        {"input_tokens": ..., "output_tokens": ..., "cached_input_tokens": ...} | None,
+        "truncated":    True when generation stopped at max_tokens,
     }
 
 ``usage`` is None when the provider did not report token usage; it is never
@@ -50,6 +51,10 @@ from coder_agent.core.usage import (
     usage_from_anthropic,
     usage_from_openai,
 )
+
+
+class LLMOutputTruncatedError(RuntimeError):
+    """The response stopped at max_tokens with no text or tool call to act on."""
 
 
 # ---------------------------------------------------------------------------
@@ -122,8 +127,18 @@ class _OpenAIBackend:
     def __init__(self, api_key: str, base_url: str) -> None:
         self._api_key = api_key
         self._base_url = base_url
+        # HTTP timeout for connecting and for each read.
         self._request_timeout_seconds = float(
             os.environ.get("CODER_LLM_REQUEST_TIMEOUT_SECONDS", "180")
+        )
+        # A stream fails when no chunk arrives for the idle timeout, or when it
+        # outlives the total backstop. Reasoning models stream steadily for
+        # minutes, so a short total cap would cut healthy calls.
+        self._stream_idle_timeout_seconds = float(
+            os.environ.get("CODER_LLM_STREAM_IDLE_TIMEOUT_SECONDS", "120")
+        )
+        self._stream_total_timeout_seconds = float(
+            os.environ.get("CODER_LLM_STREAM_TOTAL_TIMEOUT_SECONDS", "900")
         )
         self._client: AsyncOpenAI | None = None
         self._client_loop_id: int | None = None
@@ -170,6 +185,7 @@ class _OpenAIBackend:
         text_chunks: list[str] = []
         tc_accum: dict[int, dict[str, str]] = defaultdict(lambda: {"id": "", "name": "", "arguments": ""})
         usage: LLMUsage | None = None
+        finish_reason: str | None = None
 
         client = self._client_for_current_loop()
 
@@ -207,29 +223,39 @@ class _OpenAIBackend:
                 if attempt == _MAX_RETRIES:
                     raise
 
-        request_timeout = getattr(self, "_request_timeout_seconds", 180.0)
-        async with asyncio.timeout(request_timeout):
-            async for chunk in stream:
-                # The usage chunk usually has no choices, so read it first.
-                chunk_usage = usage_from_openai(getattr(chunk, "usage", None))
-                if chunk_usage is not None:
-                    usage = chunk_usage
-                delta = chunk.choices[0].delta if chunk.choices else None
-                if delta is None:
-                    continue
-                if delta.content:
-                    text_chunks.append(delta.content)
-                    if on_token:
-                        await on_token(delta.content)
-                if delta.tool_calls:
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if tc.id:
-                            tc_accum[idx]["id"] = tc.id
-                        if tc.function.name:
-                            tc_accum[idx]["name"] = tc.function.name
-                        if tc.function.arguments:
-                            tc_accum[idx]["arguments"] += tc.function.arguments
+        idle_timeout = getattr(self, "_stream_idle_timeout_seconds", 120.0)
+        total_timeout = getattr(self, "_stream_total_timeout_seconds", 900.0)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + total_timeout
+        try:
+            async with asyncio.timeout_at(min(loop.time() + idle_timeout, deadline)) as stream_timeout:
+                async for chunk in stream:
+                    stream_timeout.reschedule(min(loop.time() + idle_timeout, deadline))
+                    # The usage chunk usually has no choices, so read it first.
+                    chunk_usage = usage_from_openai(getattr(chunk, "usage", None))
+                    if chunk_usage is not None:
+                        usage = chunk_usage
+                    if chunk.choices and getattr(chunk.choices[0], "finish_reason", None):
+                        finish_reason = chunk.choices[0].finish_reason
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if delta is None:
+                        continue
+                    if delta.content:
+                        text_chunks.append(delta.content)
+                        if on_token:
+                            await on_token(delta.content)
+                    if delta.tool_calls:
+                        for tc in delta.tool_calls:
+                            idx = tc.index
+                            if tc.id:
+                                tc_accum[idx]["id"] = tc.id
+                            if tc.function.name:
+                                tc_accum[idx]["name"] = tc.function.name
+                            if tc.function.arguments:
+                                tc_accum[idx]["arguments"] += tc.function.arguments
+        except TimeoutError as exc:
+            bound = f"total {total_timeout:g}s" if loop.time() >= deadline else f"idle {idle_timeout:g}s"
+            raise TimeoutError(f"LLM stream exceeded its {bound} timeout") from exc
 
         tool_uses: list[dict[str, Any]] = []
         parse_errors: list[str] = []
@@ -250,6 +276,7 @@ class _OpenAIBackend:
             "tool_uses": tool_uses,
             "parse_errors": parse_errors,
             "usage": usage.to_dict() if usage is not None else None,
+            "truncated": finish_reason == "length",
         }
 
     async def aclose(self) -> None:
@@ -472,6 +499,7 @@ class _AnthropicBackend:
             "tool_uses": tool_uses,
             "parse_errors": [],
             "usage": usage.to_dict() if usage is not None else None,
+            "truncated": getattr(final_message, "stop_reason", None) == "max_tokens",
         }
 
     async def aclose(self) -> None:
@@ -501,8 +529,9 @@ class LLMClient:
     The chat() interface is identical regardless of backend, so callers
     (Agent, AgentSession) are unaffected by the provider switch.
 
-    ``usage`` accumulates provider-reported usage over every completed call,
-    including context-compaction and decomposer calls made through this client.
+    ``usage`` accumulates provider-reported usage over every call; a call that
+    raised is counted as attempted with unreported usage. It includes
+    context-compaction and decomposer calls made through this client.
     """
 
     def __init__(self, profile: LLMProfile | None = None) -> None:
@@ -530,17 +559,29 @@ class LLMClient:
         seed: int | None = None,
         on_token: Any | None = None,
     ) -> dict[str, Any]:
-        response = await self._backend.chat(
-            messages=messages,
-            system=system,
-            tools=tools,
-            model=model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            seed=seed,
-            on_token=on_token,
-        )
+        try:
+            response = await self._backend.chat(
+                messages=messages,
+                system=system,
+                tools=tools,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                seed=seed,
+                on_token=on_token,
+            )
+        except BaseException:
+            # A failed or cancelled call may still have consumed tokens the
+            # provider never reported; count it so the totals read "partial".
+            self.usage.record(None)
+            raise
         self.usage.record(LLMUsage.from_dict(response.get("usage")))
+        if response.get("truncated") and not (response["content"] or response["tool_uses"] or response["parse_errors"]):
+            # Reasoning models can spend the whole budget before any visible
+            # output. Retrying the same request would only repeat the cost.
+            raise LLMOutputTruncatedError(
+                f"LLM output hit max_tokens={max_tokens} before any text or tool call"
+            )
         return response
 
     async def aclose(self) -> None:
