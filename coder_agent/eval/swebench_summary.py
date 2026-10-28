@@ -123,6 +123,16 @@ def _distribution(values: list[float]) -> dict[str, float] | None:
     }
 
 
+def _termination_by_outcome(final: list[dict[str, Any]], outcomes: dict[str, str]) -> dict[str, dict[str, int]]:
+    """How each way a run ended was graded, e.g. how many retry-guard stops still resolved."""
+    table: dict[str, Counter] = {}
+    for record in final:
+        reason = record.get("termination_reason")
+        if reason:
+            table.setdefault(reason, Counter())[outcomes[record["instance_id"]]] += 1
+    return {reason: dict(counts) for reason, counts in sorted(table.items())}
+
+
 def summarize_arm(name: str, run_dir: Path, instance_ids: list[str], instances_sha256: str) -> dict[str, Any]:
     report_path = run_dir / "harness_report.json"
     report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
@@ -164,6 +174,7 @@ def summarize_arm(name: str, run_dir: Path, instance_ids: list[str], instances_s
         },
         "retried_instances": sorted({r["instance_id"] for r in raw_records if r.get("attempt", 1) > 1}),
         "termination_reasons": dict(Counter(r.get("termination_reason") for r in final if r.get("termination_reason"))),
+        "termination_by_outcome": _termination_by_outcome(final, outcomes),
         "usage": {
             "token_usage_status": dict(Counter(u.get("token_usage_status") for u in usage if u)),
             "llm_calls": usage_sum("llm_calls"),
@@ -266,6 +277,13 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 f"| {pair['only_second']} | {pair['neither']} | {pair['exact_mcnemar_p']} "
                 f"| {pair['rate_difference']:+.1%} ({low:+.1%} to {high:+.1%}) |"
             )
+    for arm in summary["arms"]:
+        if arm["termination_by_outcome"]:
+            cells = "; ".join(
+                f"{reason}: " + ", ".join(f"{outcome} {count}" for outcome, count in sorted(counts.items()))
+                for reason, counts in arm["termination_by_outcome"].items()
+            )
+            lines += ["", f"{arm['arm']} termination by outcome: {cells}"]
     for arm in summary["arms"]:
         failures = {key: ids for key, ids in arm["failure_ids"].items() if ids}
         if failures or arm["warnings"]:

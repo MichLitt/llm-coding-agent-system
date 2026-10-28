@@ -95,6 +95,13 @@ def test_every_instance_gets_one_outcome_and_failures_are_listed(tmp_path):
     assert agent["failure_ids"]["infra_error"] == ["d__x-4"]
     assert agent["retried_instances"] == ["c__x-3"]
     assert agent["usage"]["output_tokens"] == 107
+    assert agent["termination_by_outcome"] == {
+        "cancelled": {"wall_cap": 1},
+        "loop_exception": {"provider_error": 1},
+        "max_steps": {"unresolved": 1},
+        "model_stop": {"resolved": 2},
+    }
+    assert external["termination_by_outcome"] == {}
     assert agent["provenance"]["manifest"]["agent_commit"] == "abc"
     assert agent["warnings"] == []
     assert external["outcome_counts"]["harness_error"] == 1
@@ -117,3 +124,4 @@ def test_cli_writes_json_and_markdown_and_warns_on_a_different_instance_file(tmp
     summary = json.loads((tmp_path / "s.json").read_text())
     assert summary["arms"][0]["warnings"] == ["manifest instances_file_sha256 differs from --instances"]
     assert "| A | 2/6 |" in (tmp_path / "s.md").read_text()
+    assert "A termination by outcome: cancelled: wall_cap 1;" in (tmp_path / "s.md").read_text()
