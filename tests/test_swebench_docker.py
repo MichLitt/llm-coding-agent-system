@@ -265,3 +265,43 @@ def test_default_sandbox_uses_the_swebench_conda_env_and_utf8_locale(monkeypatch
     assert captured["image"] == "swebench/sweb.eval.x86_64.django_1776_django-11490:latest"
     assert captured["env"] == {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
     assert captured["network"] == "none"
+
+
+def test_seeded_order_and_stop_after_support_a_budget_checkpoint(tmp_path, monkeypatch):
+    from coder_agent.eval import swebench_docker
+
+    ids = [f"demo__calc-{n}" for n in range(1, 9)]
+    instances = tmp_path / "instances.jsonl"
+    instances.write_text("".join(json.dumps({"instance_id": i, "problem_statement": "p"}) + "\n" for i in ids))
+    seen = []
+
+    def fake_run_instances(batch, options, workers=1):
+        pending = batch[: options["stop_after"]] if options["stop_after"] is not None else batch
+        seen.append([i["instance_id"] for i in pending])
+        return {"ran": len(pending)}
+
+    monkeypatch.setattr(swebench_docker, "run_instances", fake_run_instances)
+    argv = ["--instances", str(instances), "--output", str(tmp_path / "out"), "--label", "l",
+            "--llm-profile", "glm_5", "--order-seed", "7"]
+    swebench_docker.main([*argv, "--stop-after", "3"])
+    swebench_docker.main(argv)
+
+    manifest = json.loads((tmp_path / "out/manifest.json").read_text())
+    assert manifest["order_seed"] == 7 and "stop_after" not in manifest
+    assert sorted(manifest["instance_ids"]) == ids and manifest["instance_ids"] != ids
+    assert seen[0] == manifest["instance_ids"][:3] and seen[1] == manifest["instance_ids"]
+    try:
+        swebench_docker.main([*argv[:-1], "8"])
+    except SystemExit as exc:
+        assert "order_seed" in str(exc)
+    else:
+        raise AssertionError("a different processing order must not resume into the same run")
+
+
+def test_stop_after_limits_one_invocation(tmp_path):
+    start_sandbox, agent_factory = _factories(tmp_path, _FixBackend())
+    instances = [{"instance_id": f"demo__calc-{n}", "problem_statement": "p"} for n in range(1, 4)]
+    first = run_instances(instances, {**_options(tmp_path), "stop_after": 2},
+                          start_sandbox=start_sandbox, agent_factory=agent_factory)
+    second = run_instances(instances, _options(tmp_path), start_sandbox=start_sandbox, agent_factory=agent_factory)
+    assert (first["ran"], second["skipped_completed"], second["ran"]) == (2, 2, 1)

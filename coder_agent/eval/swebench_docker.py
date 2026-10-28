@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import random
 import re
 import threading
 import time
@@ -262,6 +263,8 @@ def run_instances(
         instance for instance in instances
         if instance["instance_id"] not in done or instance["instance_id"] in retry
     ]
+    if options.get("stop_after") is not None:
+        pending = pending[: options["stop_after"]]
     lock = threading.Lock()
 
     def work(instance: dict[str, Any]) -> None:
@@ -318,14 +321,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--wall-cap-minutes", type=float, default=DEFAULT_WALL_CAP_SECONDS / 60)
     parser.add_argument("--retry-errors", action="store_true",
                         help="run an instance once more when an attempt hits an infrastructure or provider failure")
+    parser.add_argument("--order-seed", type=int,
+                        help="process instances in a seeded random order (frozen in the manifest)")
+    parser.add_argument("--stop-after", type=int,
+                        help="run at most this many pending instances in this invocation, e.g. for a budget checkpoint")
     args = parser.parse_args(argv)
 
     instances = load_instances(args.instances)[: args.limit]
+    if args.order_seed is not None:
+        # Sorted samples cluster by repository; a seeded order makes any prefix
+        # (such as a budget checkpoint) a fair subsample.
+        random.Random(args.order_seed).shuffle(instances)
     options = {
         "output": args.output, "label": args.label, "preset": args.preset, "llm_profile": args.llm_profile,
         "experiment_config": json.loads(args.experiment_config), "max_steps": args.max_steps,
         "namespace": args.namespace, "network": args.network, "cpus": args.cpus, "memory": args.memory,
-        "wall_cap_seconds": args.wall_cap_minutes * 60,
+        "wall_cap_seconds": args.wall_cap_minutes * 60, "order_seed": args.order_seed,
     }
     args.output.mkdir(parents=True, exist_ok=True)
     manifest_path = args.output / "manifest.json"
@@ -348,7 +359,7 @@ def main(argv: list[str] | None = None) -> int:
         previous = json.loads(manifest_path.read_text())
         frozen = (
             "instances_file_sha256", "instance_ids", "preset", "llm_profile", "experiment_config", "max_steps",
-            "model_settings", "wall_cap_seconds",
+            "model_settings", "wall_cap_seconds", "order_seed",
         )
         changed = [key for key in frozen if previous.get(key) != manifest[key]]
         if changed:
@@ -356,6 +367,7 @@ def main(argv: list[str] | None = None) -> int:
         manifest["started_at"] = previous["started_at"]
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     options["retry_errors"] = args.retry_errors
+    options["stop_after"] = args.stop_after
     summary = run_instances(instances, options, workers=args.workers)
     manifest["finished_at"] = time.time()
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
