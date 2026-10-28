@@ -1,0 +1,73 @@
+{
+  "schema_version": "policy-utility/v1",
+  "benchmark": "custom (40 tasks)",
+  "preset": "C3",
+  "llm_profile": "glm_5 (glm-5.1)",
+  "model_seed": 101,
+  "agent_commit_at_analysis": "b2bbf2207148b6c2f1e7be9e0c7dca6a1f0c1a49",
+  "oracle_gate": "on in both arms (see report/EVAL_INTEGRITY_AUDIT_v0.8.0.md); relative comparison only",
+  "arms": {
+    "legacy": {
+      "label": "wp2_util_legacy_s101",
+      "results_sha256": "ce07e3b9bc45f16adce3a5beae6212f42b87369b98b55f284402b0903d4867f3",
+      "passed": 32,
+      "llm_stream_timeouts": [
+        "custom_hard_003",
+        "custom_hard_005",
+        "custom_medium_007",
+        "custom_medium_010",
+        "custom_medium_011",
+        "custom_v8_010"
+      ],
+      "steps": 163,
+      "llm_calls_completed": 157,
+      "input_tokens": 473739,
+      "output_tokens": 128223,
+      "cached_input_tokens": 397440,
+      "duration_seconds": 4874.5
+    },
+    "workspace-write": {
+      "label": "wp2_util_ww_s101",
+      "results_sha256": "98c716387ae7c6c51e4416ed0cdd79a5fd96244f2cbb2f1176b9f110bcd5d767",
+      "passed": 33,
+      "llm_stream_timeouts": [
+        "custom_hard_003",
+        "custom_hard_005",
+        "custom_medium_007",
+        "custom_medium_010",
+        "custom_medium_011",
+        "custom_v8_010"
+      ],
+      "steps": 138,
+      "llm_calls_completed": 132,
+      "input_tokens": 349849,
+      "output_tokens": 119214,
+      "cached_input_tokens": 273920,
+      "duration_seconds": 4503.8
+    }
+  },
+  "paired": {
+    "legacy_only_pass": [
+      "custom_medium_012"
+    ],
+    "workspace_write_only_pass": [
+      "custom_hard_001",
+      "custom_medium_005"
+    ],
+    "exact_mcnemar_p": 1.0
+  },
+  "policy_denials": [
+    {
+      "task_id": "custom_medium_012",
+      "step": 9,
+      "rule": "write-outside-workspace",
+      "call": "cat > /tmp/smoke_test.py <<EOF ...",
+      "agent_recovery": "reran the script from stdin at step 10"
+    }
+  ],
+  "notes": [
+    "Both arms lost the same 6 tasks to the 180 s total LLM stream timeout (GLM-5.1 streams reasoning_content at ~37 tok/s; max_tokens 8192 needs ~220 s).",
+    "The aborted call of each timed-out task is missing from the usage totals, so token figures undercount.",
+    "custom_medium_012 modified the harness .venv: ensurepip (workspace-write arm), then pip install mypy (legacy arm); restored with `uv sync --frozen` after the runs."
+  ]
+}

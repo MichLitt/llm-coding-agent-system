@@ -117,17 +117,46 @@ slice adds:
 - an end-to-end lane in which `glm_5` runs tasks with injected documents and
   canary detection.
 
+## Utility cost on Custom-40
+
+Custom-40, preset C3, `glm_5`, model seed 101, one run per arm. Evidence:
+`artifacts/policy-utility/custom40-legacy-vs-workspace-write-s101.json`.
+
+| Arm | Passed | Steps | Completed LLM calls | Output tokens |
+|---|---|---|---|---|
+| `legacy` | 32/40 | 163 | 157 | 128,223 |
+| `workspace-write` | 33/40 | 138 | 132 | 119,214 |
+
+- **Paired.** `legacy` passed one task the other arm failed
+  (`custom_medium_012`), and `workspace-write` passed two that `legacy`
+  failed (`custom_hard_001`, `custom_medium_005`). Exact McNemar p = 1.0.
+- **Denials.** The policy denied one call in the whole run: a
+  `cat > /tmp/smoke_test.py` heredoc in `custom_medium_012`, step 9. The
+  Agent reran the script from stdin at step 10. The task failed later on
+  its own wrong test expectation and the step budget, not on the denial.
+- **No measurable utility cost**, with one seed and n = 40. A real cost
+  smaller than several tasks would not be detectable here.
+- **Caveats.**
+  - Both arms share the oracle gate (`EVAL_INTEGRITY_AUDIT_v0.8.0.md`), so
+    only the relative comparison is meaningful.
+  - Both arms lost the same 6 tasks to the LLM stream timeout (audit
+    Finding 3). This caps both arms at 34/40.
+  - `custom_medium_012` modified the harness's own `.venv` in both arms
+    (audit Finding 4): `ensurepip` in `workspace-write`, then
+    `pip install mypy` in `legacy`. The policy allows plain installs, and
+    the Custom lane runs tasks with the harness interpreter on `PATH`. The
+    venv was restored with `uv sync --frozen`.
+
 ## Default and remaining work
 
-`workspace-write` is not yet the default. Flipping it changes Agent behavior
-on benchmark tasks, for example a denied `curl` or `$(…)`. The plan is to
-measure the utility cost first: the Custom-40 pass rate with
-`policy_mode=workspace-write` versus `legacy`, same model and seeds. Flip the
-default only if that cost is acceptable, then rebaseline.
+`workspace-write` is not yet the default. The measurement above found no
+utility cost, so the remaining step is a decision: flip the default, then
+rebaseline.
 
 Remaining WP2 work:
 
-- the utility measurement;
+- the default flip, plus treating package installs into an interpreter
+  outside the workspace as `write-outside-workspace`;
 - the end-to-end injection lane;
 - held-out cases;
 - an interactive CLI approver for `ask`;
