@@ -55,6 +55,161 @@ Consequences:
   Custom-40 utility comparison are oracle-assisted in the same way. The WP2
   comparison is still valid as a relative measure: both arms share the gate.
 
+## Finding 3 — GLM-5.1 spends `max_tokens` on reasoning; the stream cap hid it
+
+GLM-5.1 thinks by default. Its reasoning streams as `delta.reasoning_content`
+and counts against `max_tokens` (8192 in `config.yaml`). The client discards
+it.
+
+**Probes (2026-10-27/28).**
+
+- `max_tokens` 6000, "write a 250-line module":
+  - first chunk after 1.2 s, then a chunk at least every 1.3 s (about
+    37 tok/s);
+  - all 6000 tokens were reasoning; `content` was empty.
+- `max_tokens` 64:
+  - `finish_reason` `length`;
+  - 63 of 64 tokens were reasoning, and `content` was empty.
+
+**What the WP2 Custom-40 runs showed.** The same 6 tasks failed with
+`loop_exception` / `TimeoutError` in both arms (15%):
+
+- `custom_hard_003`
+- `custom_hard_005`
+- `custom_medium_007`
+- `custom_medium_010`
+- `custom_medium_011`
+- `custom_v8_010`
+
+`_OpenAIBackend.chat` bounded the whole stream at 180 s
+(`CODER_LLM_REQUEST_TIMEOUT_SECONDS`, `5887204`). A call that uses its full
+8192-token budget needs about 220 s, so it was cut first.
+
+**What lifting the cap revealed.** A rerun of the 6 tasks without the
+180 s cap was stopped after 30 minutes on the first task. The first
+`custom_hard_003` call returned exactly 8192 tokens of reasoning, with no
+text and no tool call. After one `list_dir` call, the next 7 calls did the
+same. Each empty reply re-entered the loop through the verification gate,
+so every step burned the full budget, about 3.7 minutes each.
+
+The 180 s cap had been turning "the model ran out of budget while thinking"
+into a fast, mislabeled timeout.
+
+**Accounting gap.** An aborted call never returned usage and was not counted
+as attempted. Token totals therefore undercounted, while
+`token_usage_status` still said `provider`.
+
+**Not affected.** The G3 formal runs (`g3_formal-v6_*`) had no such timeouts.
+Three appear only in the earlier, non-formal `g3_candidate_seed101` run.
+
+**Fixes (2026-10-28).**
+
+- **Stream bounds.** A stream fails only when:
+  - no chunk arrives for `CODER_LLM_STREAM_IDLE_TIMEOUT_SECONDS` (default
+    120 s), or
+  - it outlives `CODER_LLM_STREAM_TOTAL_TIMEOUT_SECONDS` (default 900 s).
+
+  The error names the bound that fired. `CODER_LLM_REQUEST_TIMEOUT_SECONDS`
+  keeps only its HTTP role: connect and per-read timeout.
+- **Truncation is reported.**
+  - Both backends return `truncated`: OpenAI `finish_reason == "length"`,
+    Anthropic `stop_reason == "max_tokens"`.
+  - `LLMClient.chat` raises `LLMOutputTruncatedError` when a truncated
+    response has no text, no tool call and no parse error. Its usage is
+    still recorded.
+  - A truncated response that kept a complete tool call is used as before.
+- **Aborted calls are counted.** `LLMClient.chat` counts a call that raises
+  as attempted with unreported usage, so such runs read `partial`.
+- **Tests:**
+  - a slow but live stream completes;
+  - the idle and total bounds both fire;
+  - truncation is detected from a reasoning-only stream;
+  - an empty truncated reply raises and keeps its usage, while one with a
+    tool call passes;
+  - an Agent run stops after one empty truncated reply;
+  - a timed-out call reads `partial`.
+- **Live check.** `custom_hard_003` with the guard
+  (`wp2_truncguard_legacy_s101`):
+  - 3 calls in 490 s;
+  - stopped with `LLMOutputTruncatedError: LLM output hit max_tokens=8192
+    before any text or tool call`;
+  - usage `provider`, 16,389 output tokens.
+
+**Budget versus thinking, one task (`custom_hard_003`, C3, seed 101).**
+
+| Setting | Result | Calls | Output tokens | Time |
+|---|---|---|---|---|
+| `glm_5`, `max_tokens` 8192 | `LLMOutputTruncatedError` | 3 | 16,389 | 490 s |
+| `glm_5`, `CODER_MAX_TOKENS=24576` | `LLMOutputTruncatedError` on call 1 | 1 | 24,576 | 633 s |
+| `glm_5_nothink` (`thinking` disabled), 8192 | passed | 8 | 4,405 | 101 s |
+
+On this task, a larger budget did not help: the model reasoned through all
+24,576 tokens without producing any output.
+
+**Custom-40, thinking on versus off** (C3, `legacy`, seed 101, `max_tokens`
+8192). Evidence: `artifacts/glm-thinking/custom40-thinking-on-vs-off-s101.json`.
+
+| Arm | Passed | `loop_exception` | Steps | Output tokens | Input tokens | Wall time |
+|---|---|---|---|---|---|---|
+| `glm_5` (thinking on) | 32/40 | 6 | 163 | 128,223 | 473,739 | 4,874 s |
+| `glm_5_nothink` | 34/40 | 0 | 193 | 69,101 | 602,356 | 2,355 s |
+
+- **Paired.**
+  - Thinking on passed 3 tasks the other arm failed: `custom_medium_012`,
+    `custom_v8_005`, `custom_v8_008`.
+  - Thinking off passed 5 the other arm failed: `custom_hard_001`,
+    `custom_medium_005`, `custom_medium_007`, `custom_medium_010`,
+    `custom_v8_010`.
+  - Exact McNemar p = 0.73. No quality difference is detectable at
+    n = 40.
+- **The 6 truncated tasks.** With thinking off, 3 passed and 3 failed by
+  `retry_exhausted`, an ordinary Agent failure. `custom_hard_003` passed in
+  the separate single-task run but failed here, which is run-to-run
+  variance.
+- **Cost.** Thinking off took more, shorter steps. It used 46% fewer output
+  tokens, 27% more input tokens and 52% less wall time.
+- **Caveats.**
+  - One seed.
+  - The oracle gate was on in both arms.
+  - The thinking-on arm predates the stream fix. Its 6 failures were
+    180 s timeouts, which now end in `LLMOutputTruncatedError`: the same
+    outcome.
+  - Custom tasks are easier than SWE-bench, where thinking may matter more.
+
+`glm_5_nothink` uses the new optional `extra_body` profile field, which is
+merged into every request on both transports.
+
+**Still open: the model setting for WP1.** With thinking on, these tasks
+fail honestly and cheaply. Before any GLM benchmark claim (including WP1),
+one of these must be chosen:
+
+- **`glm_5_nothink`.** Custom-40 shows no measurable quality loss at half
+  the wall time and output tokens, and no runaway reasoning.
+- **Thinking on with preserved thinking.** The Coding Plan endpoint enables
+  preserved thinking by default, and the provider docs ask clients to
+  return `reasoning_content` unmodified in later turns. This client drops
+  it, so the thinking-on arm above was not run the way the provider
+  intends. Supporting it means storing and replaying reasoning in the
+  message history, and it would need its own comparison.
+
+## Finding 4 — Custom-lane tasks can modify the harness environment
+
+Custom-lane commands run with the harness's own `.venv` interpreter on
+`PATH`. In the WP2 Custom-40 runs, `custom_medium_012` modified the harness
+`.venv` in both arms:
+
+- the `workspace-write` arm ran `ensurepip`, which installed pip;
+- about 7 minutes later, the `legacy` arm used that pip to install mypy and
+  four dependencies.
+
+Every task that ran afterwards, in either arm, saw a changed environment.
+
+The packages were removed with `uv sync --frozen` after the runs. The WP1
+Docker lane is not affected: each instance has its own container.
+Recommended fix: a per-task virtualenv for the Custom lane, or a policy rule
+that treats installs into an interpreter outside the workspace as writes
+outside the workspace.
+
 ## What is not affected
 
 - `coder_agent.eval.swebench_docker` (WP1) passes no verification hook. The

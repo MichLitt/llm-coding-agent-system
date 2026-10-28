@@ -1,0 +1,66 @@
+{
+  "schema_version": "glm-thinking-comparison/v1",
+  "benchmark": "custom (40 tasks)",
+  "preset": "C3",
+  "policy_mode": "legacy",
+  "model": "glm-5.1",
+  "model_seed": 101,
+  "max_tokens": 8192,
+  "agent_commit_at_analysis": "b2bbf2207148b6c2f1e7be9e0c7dca6a1f0c1a49",
+  "oracle_gate": "on in both arms (see report/EVAL_INTEGRITY_AUDIT_v0.8.0.md); relative comparison only",
+  "arms": {
+    "thinking_on": {
+      "label": "wp2_util_legacy_s101",
+      "llm_profile": "glm_5",
+      "results_sha256": "ce07e3b9bc45f16adce3a5beae6212f42b87369b98b55f284402b0903d4867f3",
+      "passed": 32,
+      "termination_reasons": {
+        "verification_passed": 32,
+        "retry_exhausted": 2,
+        "loop_exception": 6
+      },
+      "steps": 163,
+      "llm_calls": 157,
+      "input_tokens": 473739,
+      "output_tokens": 128223,
+      "cached_input_tokens": 397440,
+      "duration_seconds": 4874.5
+    },
+    "thinking_off": {
+      "label": "wp2_nothink_full_legacy_s101",
+      "llm_profile": "glm_5_nothink",
+      "results_sha256": "a09dce95250c71fe0446fee43542eac89f251dfba8143f41a0d1cbc7806dc628",
+      "passed": 34,
+      "termination_reasons": {
+        "verification_passed": 34,
+        "retry_exhausted": 6
+      },
+      "steps": 193,
+      "llm_calls": 193,
+      "input_tokens": 602356,
+      "output_tokens": 69101,
+      "cached_input_tokens": 525184,
+      "duration_seconds": 2355.3
+    }
+  },
+  "paired": {
+    "thinking_on_only_pass": [
+      "custom_medium_012",
+      "custom_v8_005",
+      "custom_v8_008"
+    ],
+    "thinking_off_only_pass": [
+      "custom_hard_001",
+      "custom_medium_005",
+      "custom_medium_007",
+      "custom_medium_010",
+      "custom_v8_010"
+    ],
+    "exact_mcnemar_p": 0.727
+  },
+  "notes": [
+    "The thinking-on arm ran before the stream-timeout fix: its 6 loop_exception tasks were cut by the 180 s cap while reasoning. With the current code they end in LLMOutputTruncatedError instead; the outcome (fail) is the same.",
+    "The thinking-off arm ran with the current code (idle/total stream bounds, truncation guard, extra_body).",
+    "custom_hard_003 passed in a separate thinking-off run (wp2_nothink_legacy_s101) but failed here: run-to-run variance."
+  ]
+}

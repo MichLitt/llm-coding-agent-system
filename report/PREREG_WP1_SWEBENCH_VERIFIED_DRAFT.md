@@ -31,8 +31,21 @@ minimal public agent using the same model and budget?
   `--network none`, 2 CPUs, 6 GB memory, `--pids-limit 1024` and
   `no-new-privileges`. Tools run through `docker exec`
   (`coder_agent/tools/container.py`).
-- Grading: `python -m swebench.harness.run_evaluation` from the pinned
-  `swebench` version (TBD, recorded), with `--predictions_path <arm>/predictions.jsonl`.
+- Grading: `python -m swebench.harness.run_evaluation` from `swebench`
+  5.0.2 (Python 3.12.3 venv on the WSL host), with
+  `--predictions_path <arm>/predictions.jsonl`.
+- Harness validation (2026-10-28): a gold-patch run on 5 Verified instances
+  sampled with the pilot seed 20261027 resolved 5/5, with 0 errors and 0
+  unstopped containers. The instances were `django__django-10914`, `-11951`,
+  `-12276`, `-13109` and `sphinx-doc__sphinx-9230`. The prebuilt images
+  pulled and graded in about 2.5 minutes in total.
+- Linux validation of the Agent side (2026-10-28, run by the user on the
+  WSL host at `b2bbf22`; outputs as expected):
+  - `uv sync --frozen && uv run pytest -q` passed;
+  - a `DockerSandbox` smoke on the `django__django-10914` image resolved
+    `python` to the image's conda `testbed` env;
+  - it confirmed no network inside the container;
+  - a newly written file appeared in `diff()`.
 - Agent code: the commit recorded in each run's `manifest.json`. Code changes
   between arms are not allowed.
 
@@ -41,11 +54,34 @@ minimal public agent using the same model and budget?
 | Arm | Configuration | Seeds |
 |---|---|---|
 | A | This Agent, preset C3, `policy_mode=legacy` (the container is the sandbox), `max_steps=40`, no verification hook | 101, 202 |
-| R | mini-SWE-agent (version TBD, pinned), same model profile, step limit 40, default prompt | 1 run |
+| R | mini-SWE-agent (version TBD, pinned), same model and request settings (including `thinking` disabled), step limit 40, default prompt | 1 run |
 | B (only if §6 option 2 is chosen) | A plus a non-oracle self-verification gate, frozen before the formal run | 101, 202 |
 
-Model: profile `glm_5` (`glm-5.1`), with temperature and `max_tokens` from
-`config.yaml` at the pinned commit.
+**Model (decided 2026-10-28).**
+
+- Profile `glm_5_nothink`: `glm-5.1` on the Coding Plan endpoint, with
+  `thinking: {"type": "disabled"}` sent in every request.
+- Temperature 0.2 and `max_tokens` 8192, from `config.yaml` at the pinned
+  commit. The runner records them in `manifest.json` under
+  `model_settings`, together with the profile's `extra_body`, and refuses
+  to resume a run whose settings changed.
+- `CODER_MAX_TOKENS` must be unset.
+
+Why thinking is disabled (`EVAL_INTEGRITY_AUDIT_v0.8.0.md`, Finding 3):
+
+- With thinking on, GLM-5.1's reasoning counts against `max_tokens`. On some
+  tasks it used the whole budget, at 8192 and at 24,576, with no text or
+  tool call.
+- On Custom-40 (seed 101, oracle gate on in both arms), thinking off scored
+  34/40 against 32/40 for thinking on (McNemar p = 0.73). It had no
+  truncations, 46% fewer output tokens and 52% less wall time.
+
+The pilot uses the same profile. Thinking on with preserved reasoning is
+not tested in WP1; a result here says nothing about it.
+
+Arm R sends the same `thinking` field through its model client's extra
+request parameters. Its config file is archived with the run, and its
+first request is checked to confirm the field is present.
 
 ## 5. Measures and analysis
 
