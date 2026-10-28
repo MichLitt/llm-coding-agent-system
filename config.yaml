@@ -40,6 +40,19 @@ llm:
       #   output_usd_per_mtok: 0.0
       #   cached_input_usd_per_mtok: 0.0
 
+    # glm_5 with thinking off. GLM-5.1 reasoning counts against max_tokens
+    # and can use the whole budget without producing output
+    # (report/EVAL_INTEGRITY_AUDIT_v0.8.0.md, Finding 3).
+    glm_5_nothink:
+      transport: openai
+      model: glm-5.1
+      api_key_env: LLM_GLM_5_API_KEY
+      base_url_env: LLM_GLM_5_BASE_URL
+      base_url_default: https://api.z.ai/api/coding/paas/v4
+      extra_body:
+        thinking:
+          type: disabled
+
 agent:
   max_steps: 15
   max_retries: 3

@@ -178,6 +178,29 @@ async def test_openai_backend_requests_and_reads_stream_usage():
     assert response["usage"] == {"input_tokens": 200, "output_tokens": 40, "cached_input_tokens": 0}
 
 
+def test_glm_nothink_profile_sends_thinking_disabled_in_every_request():
+    requests = []
+
+    async def fake_create(**kwargs):
+        requests.append(kwargs)
+        return _ChunkStream([_text_chunk("ok")])
+
+    with patch.dict(os.environ, {"LLM_GLM_5_API_KEY": "k"}):
+        thinking_off = resolve_llm_profile("glm_5_nothink")
+        default = resolve_llm_profile("glm_5")
+    assert default.extra_body is None
+
+    client = LLMClient(profile=thinking_off)
+    client._backend._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create)))
+
+    async def _call():
+        client._backend._client_loop_id = id(asyncio.get_running_loop())
+        await client.chat(messages=[], system="s", tools=[], model="glm-5.1", max_tokens=16, temperature=0.0)
+
+    asyncio.run(_call())
+    assert requests[0]["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
 @pytest.mark.asyncio
 async def test_openai_backend_falls_back_when_provider_rejects_stream_options():
     requests = []

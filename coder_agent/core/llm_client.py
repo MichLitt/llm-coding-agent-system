@@ -124,9 +124,10 @@ def _parse_tool_arguments(arguments: str, tool_name: str) -> tuple[dict[str, Any
 class _OpenAIBackend:
     """Async OpenAI-compatible backend (MiniMax M2.5 and other OpenAI endpoints)."""
 
-    def __init__(self, api_key: str, base_url: str) -> None:
+    def __init__(self, api_key: str, base_url: str, extra_body: dict | None = None) -> None:
         self._api_key = api_key
         self._base_url = base_url
+        self._extra_body = extra_body
         # HTTP timeout for connecting and for each read.
         self._request_timeout_seconds = float(
             os.environ.get("CODER_LLM_REQUEST_TIMEOUT_SECONDS", "180")
@@ -206,6 +207,8 @@ class _OpenAIBackend:
                 }
                 if seed is not None:
                     request["seed"] = seed
+                if getattr(self, "_extra_body", None):
+                    request["extra_body"] = dict(self._extra_body)
                 if getattr(self, "_stream_include_usage", True):
                     request["stream_options"] = {"include_usage": True}
                 try:
@@ -406,9 +409,10 @@ class _AnthropicBackend:
     no JSON parsing is needed on the client side.
     """
 
-    def __init__(self, api_key: str, base_url: str) -> None:
+    def __init__(self, api_key: str, base_url: str, extra_body: dict | None = None) -> None:
         self._api_key = api_key
         self._base_url = base_url
+        self._extra_body = extra_body
         self._client: anthropic.AsyncAnthropic | None = None
         self._client_loop_id: int | None = None
 
@@ -461,6 +465,7 @@ class _AnthropicBackend:
                     system=system,
                     messages=normalized,
                     tools=anthropic_tools,
+                    extra_body=getattr(self, "_extra_body", None),
                 ) as stream:
                     if on_token:
                         async for text in stream.text_stream:
@@ -541,11 +546,13 @@ class LLMClient:
             self._backend: _OpenAIBackend | _AnthropicBackend = _AnthropicBackend(
                 api_key=self.profile.api_key,
                 base_url=self.profile.base_url or "https://api.minimax.io/anthropic",
+                extra_body=self.profile.extra_body,
             )
         else:
             self._backend = _OpenAIBackend(
                 api_key=self.profile.api_key,
                 base_url=self.profile.base_url or "",
+                extra_body=self.profile.extra_body,
             )
 
     async def chat(

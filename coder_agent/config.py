@@ -205,6 +205,9 @@ class LLMProfile:
     api_key: str
     base_url: str | None
     pricing: ModelPricing | None = None
+    # Provider-specific request fields merged into every call, for example
+    # GLM's {"thinking": {"type": "disabled"}}.
+    extra_body: dict | None = None
 
 
 def resolve_llm_profile(name: str | None = None) -> "LLMProfile":
@@ -258,6 +261,7 @@ def resolve_llm_profile(name: str | None = None) -> "LLMProfile":
         api_key=api_key,
         base_url=base_url,
         pricing=ModelPricing.from_dict(raw.get("pricing")),
+        extra_body=raw.get("extra_body") or None,
     )
 
 
