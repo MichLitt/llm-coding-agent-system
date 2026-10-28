@@ -107,3 +107,41 @@ def test_load_instances_requires_public_fields(tmp_path):
         assert "problem_statement" in str(exc)
     else:
         raise AssertionError("missing problem_statement must be rejected")
+
+
+def test_manifest_records_model_settings_and_refuses_resume_when_they_change(tmp_path, monkeypatch):
+    from coder_agent.config import cfg
+    from coder_agent.eval import swebench_docker
+
+    instances = tmp_path / "instances.jsonl"
+    instances.write_text(json.dumps({"instance_id": "demo__calc-1", "problem_statement": "p"}) + "\n")
+    monkeypatch.setattr(swebench_docker, "run_instances", lambda *args, **kwargs: {"ran": 0})
+    argv = ["--instances", str(instances), "--output", str(tmp_path / "out"), "--label", "l", "--llm-profile", "glm_5"]
+
+    swebench_docker.main(argv)
+    manifest = json.loads((tmp_path / "out/manifest.json").read_text())
+    assert manifest["model_settings"] == {
+        "temperature": cfg.model.temperature, "max_tokens": cfg.model.max_tokens, "extra_body": None,
+    }
+
+    monkeypatch.setattr(cfg.model, "max_tokens", cfg.model.max_tokens + 1)
+    try:
+        swebench_docker.main(argv)
+    except SystemExit as exc:
+        assert "model_settings" in str(exc)
+    else:
+        raise AssertionError("a changed token budget must not resume into the same run")
+
+
+def test_manifest_records_the_profile_request_fields(tmp_path, monkeypatch):
+    from coder_agent.eval import swebench_docker
+
+    instances = tmp_path / "instances.jsonl"
+    instances.write_text(json.dumps({"instance_id": "demo__calc-1", "problem_statement": "p"}) + "\n")
+    monkeypatch.setattr(swebench_docker, "run_instances", lambda *args, **kwargs: {"ran": 0})
+
+    swebench_docker.main(["--instances", str(instances), "--output", str(tmp_path / "out"), "--label", "l",
+                          "--llm-profile", "glm_5_nothink"])
+
+    manifest = json.loads((tmp_path / "out/manifest.json").read_text())
+    assert manifest["model_settings"]["extra_body"] == {"thinking": {"type": "disabled"}}

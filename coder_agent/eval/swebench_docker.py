@@ -15,7 +15,7 @@ Agent's dependencies. Re-running with the same output directory skips
 instances that already have a prediction.
 
     uv run python -m coder_agent.eval.swebench_docker --instances instances.jsonl \\
-        --output runs/verified-c3-s101 --label verified-c3-s101 --preset C3 --llm-profile glm_5
+        --output runs/verified-c3-s101 --label verified-c3-s101 --preset C3 --llm-profile glm_5_nothink
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
+from coder_agent.config import cfg, resolve_llm_profile
 from coder_agent.memory.run_state import current_git_commit
 from coder_agent.tools.container import (
     SWEBENCH_ENV_SETUP,
@@ -197,12 +198,20 @@ def main(argv: list[str] | None = None) -> int:
         "instances_file_sha256": hashlib.sha256(args.instances.read_bytes()).hexdigest(),
         "instance_ids": [instance["instance_id"] for instance in instances],
         "agent_commit": current_git_commit(),
+        "model_settings": {
+            "temperature": cfg.model.temperature,
+            "max_tokens": cfg.model.max_tokens,
+            "extra_body": resolve_llm_profile(args.llm_profile).extra_body,
+        },
         "workers": args.workers,
         "started_at": time.time(),
     }
     if manifest_path.exists():
         previous = json.loads(manifest_path.read_text())
-        frozen = ("instances_file_sha256", "instance_ids", "preset", "llm_profile", "experiment_config", "max_steps")
+        frozen = (
+            "instances_file_sha256", "instance_ids", "preset", "llm_profile", "experiment_config", "max_steps",
+            "model_settings",
+        )
         changed = [key for key in frozen if previous.get(key) != manifest[key]]
         if changed:
             raise SystemExit(f"resume refused: {changed} differ from the existing manifest")
