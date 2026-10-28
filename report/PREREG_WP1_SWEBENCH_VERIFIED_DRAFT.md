@@ -59,6 +59,12 @@ minimal public agent using the same model and budget?
   and records each arm's commit, model settings, instance-file hash,
   harness-report hash and image ids.
 
+  Before any container starts, the script sends one small request through
+  each arm's own client. The endpoint must be the Coding Plan endpoint
+  `https://api.z.ai/api/coding/paas/v4`. The same key on the general
+  endpoint fails with 429 code 1113. The runner records the endpoint in
+  `model_settings.base_url`.
+
 ## 4. Arms
 
 | Arm | Configuration | Seeds |

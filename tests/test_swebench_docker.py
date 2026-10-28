@@ -112,7 +112,7 @@ def test_load_instances_requires_public_fields(tmp_path):
 
 
 def test_manifest_records_model_settings_and_refuses_resume_when_they_change(tmp_path, monkeypatch):
-    from coder_agent.config import cfg
+    from coder_agent.config import cfg, resolve_llm_profile
     from coder_agent.eval import swebench_docker
 
     instances = tmp_path / "instances.jsonl"
@@ -124,6 +124,7 @@ def test_manifest_records_model_settings_and_refuses_resume_when_they_change(tmp
     manifest = json.loads((tmp_path / "out/manifest.json").read_text())
     assert manifest["model_settings"] == {
         "temperature": cfg.model.temperature, "max_tokens": cfg.model.max_tokens, "extra_body": None,
+        "base_url": resolve_llm_profile("glm_5").base_url,
     }
 
     monkeypatch.setattr(cfg.model, "max_tokens", cfg.model.max_tokens + 1)

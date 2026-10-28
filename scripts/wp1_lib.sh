@@ -2,16 +2,41 @@
 
 HARNESS_PY="${HARNESS_PY:-$HOME/swebench-harness/.venv/bin/python}"
 DATASET="SWE-bench/SWE-bench_Verified"
+# Pre-registered endpoint: the GLM Coding Plan. The same key on the general
+# endpoint (/api/paas/v4) fails with 429 code 1113 "Insufficient balance".
+WP1_API_BASE="https://api.z.ai/api/coding/paas/v4"
 
 wp1_preflight() {
   if [ -n "${CODER_MAX_TOKENS:-}" ]; then
     echo "CODER_MAX_TOKENS must be unset: the pre-registered budget comes from config.yaml" >&2
     return 1
   fi
+  # One small request through the Agent's own client: the key, the endpoint and
+  # the account's package must work before any container starts.
   uv run --frozen python -c "
-import sys
+import asyncio, sys
 from coder_agent.config import resolve_llm_profile
-sys.exit(0 if resolve_llm_profile('glm_5_nothink').api_key else 'LLM_GLM_5_API_KEY is not set; add it to .env')"
+from coder_agent.core.llm_client import LLMClient
+
+profile = resolve_llm_profile('glm_5_nothink')
+if not profile.api_key:
+    sys.exit('LLM_GLM_5_API_KEY is not set; add it to .env')
+if profile.base_url != '$WP1_API_BASE':
+    sys.exit(f'LLM base URL is {profile.base_url}, but WP1 is registered on $WP1_API_BASE; fix LLM_GLM_5_BASE_URL in .env')
+
+async def probe():
+    client = LLMClient(profile=profile)
+    try:
+        await client.chat(messages=[{'role': 'user', 'content': 'Reply with OK.'}], system='', tools=[],
+                          model=profile.model, max_tokens=16, temperature=0.0)
+    finally:
+        await client.aclose()
+
+try:
+    asyncio.run(probe())
+except Exception as exc:
+    sys.exit(f'arm A preflight: LLM request failed: {type(exc).__name__}: {str(exc)[:300]}')
+print(f'arm A preflight: ok ({profile.model} at {profile.base_url})')"
   docker info >/dev/null
   "$HARNESS_PY" -c "import swebench; print('swebench', swebench.__version__)"
 }

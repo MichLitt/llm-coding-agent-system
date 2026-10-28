@@ -301,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
             "temperature": cfg.model.temperature,
             "max_tokens": cfg.model.max_tokens,
             "extra_body": resolve_llm_profile(args.llm_profile).extra_body,
+            "base_url": resolve_llm_profile(args.llm_profile).base_url,
         },
         "workers": args.workers,
         "started_at": time.time(),
