@@ -8,8 +8,10 @@ One command recomputes the whole report from the run directories:
 
 Each arm directory holds the official harness report as ``harness_report.json``.
 Arms produced by ``coder_agent.eval.swebench_docker`` also hold
-``manifest.json``, ``results.jsonl`` and ``predictions.jsonl``. An external arm
-(for example mini-SWE-agent) may hold only the harness report.
+``manifest.json``, ``results.jsonl`` and ``predictions.jsonl``. For a
+mini-SWE-agent arm, records come from its trajectories
+(``coder_agent.eval.mini_swe_agent``): exit status, attempts, steps and token
+usage. An external arm may also hold only the harness report.
 
 Every instance in ``--instances`` gets exactly one outcome per arm. The
 resolved rate is over all instances; infrastructure, provider and harness
@@ -29,6 +31,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from coder_agent.eval.mini_swe_agent import trajectory_records
 from coder_agent.eval.swebench_docker import is_provider_failure
 
 SCHEMA_VERSION = "swebench-summary/v1"
@@ -95,7 +98,7 @@ def _outcome(instance_id: str, record: dict[str, Any] | None, report: dict[str, 
     if record is not None:
         if record.get("error"):
             return "infra_error"
-        if is_provider_failure(record):
+        if record.get("provider_error") or is_provider_failure(record):
             return "provider_error"
         if record.get("budget_failure") == "wall_cap":
             return "wall_cap"
@@ -138,7 +141,7 @@ def summarize_arm(name: str, run_dir: Path, instance_ids: list[str], instances_s
     report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
     manifest_path = run_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
-    raw_records = _read_jsonl(run_dir / "results.jsonl")
+    raw_records = _read_jsonl(run_dir / "results.jsonl") or trajectory_records(run_dir)
     records = _last_attempts(raw_records)
 
     outcomes = {instance_id: _outcome(instance_id, records.get(instance_id), report) for instance_id in instance_ids}
