@@ -43,7 +43,12 @@ for seed in $SEEDS; do
   # have a report under this run ID, which a retried instance's earlier patch may.
   rm -rf "$OUT/C-s$seed/logs/run_evaluation/wp1-dev-C-s$seed"
   wp1_grade "$OUT/C-s$seed" "wp1-dev-C-s$seed"
-  arms+=(--arm "C-s$seed=$OUT/C-s$seed")
+done
+# Every graded seed, including those an earlier invocation ran.
+for dir in "$OUT"/C-s*; do
+  if [ -f "$dir/harness_report.json" ]; then
+    arms+=(--arm "$(basename "$dir")=$dir")
+  fi
 done
 
 uv run --frozen python -m coder_agent.eval.swebench_summary --instances "$FORMAL/formal.jsonl" "${arms[@]}" \
