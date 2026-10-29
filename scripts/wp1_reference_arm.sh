@@ -52,14 +52,9 @@ FILTER="^($(paste -sd'|' <(python3 -c "import json, sys; [print(json.loads(l)['i
   -c "${SPECS[0]}" -c "${SPECS[1]}" -c "${SPECS[2]}" \
   -o "$OUT" -w "${WORKERS:-2}"
 
-# preds.json is keyed by instance id; the harness gets one JSONL line per instance.
-python3 - "$OUT/preds.json" "$OUT/predictions.jsonl" "$LABEL" <<'PY'
-import json, sys
-preds = json.load(open(sys.argv[1]))
-with open(sys.argv[2], "w") as handle:
-    for instance_id in sorted(preds):
-        handle.write(json.dumps({"instance_id": instance_id, "model_name_or_path": sys.argv[3],
-                                 "model_patch": preds[instance_id].get("model_patch") or ""}) + "\n")
-PY
+# preds.json is keyed by instance id; the harness gets one JSONL line per
+# instance, from the last attempt if scripts/wp1_reference_retry.sh retried it.
+uv run --frozen python -m coder_agent.eval.mini_swe_agent merge-predictions --run-dir "$OUT" --label "$LABEL" \
+  --output "$OUT/predictions.jsonl"
 
 wp1_grade "$OUT" "$LABEL"
