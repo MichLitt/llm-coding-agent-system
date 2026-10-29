@@ -223,6 +223,8 @@ freezing.
   failures (connection, rate-limit, server and idle-stream errors) are
   retried once with `--retry-errors`. Every attempt stays in
   `results.jsonl`, and only the last prediction per instance is graded.
+  Arm R's provider failures are retried the same way by
+  `scripts/wp1_reference_retry.sh` (Amendment 2).
 
 ## 8. Outputs
 
@@ -276,3 +278,63 @@ instances of A-s101 (agent `ad4964e`):
 - The runner rewrites `agent_commit` in `manifest.json` when it resumes,
   so the A-s101 manifest will name this amendment's commit. Its first 25
   instances ran at `ad4964e`.
+
+### Amendment 2 (2026-10-28): arm R's provider failures retried once
+
+**What changed.**
+
+- Arm R's provider failures are retried once with identical settings,
+  as §5 and §7 require for infrastructure and provider failures. Arm A's
+  runner already did this; arm R's script had no retry step.
+- `scripts/wp1_reference_retry.sh` does the retry:
+  - it selects the instances whose first attempt ended with a provider
+    exit status (`RateLimitError` and similar), using that status alone;
+  - it reruns them into `R/retry-1/` with the first attempt's archived
+    configs. It refuses to start if the mini-SWE-agent venv differs from
+    the archived `requirements.lock`;
+  - it regrades arm R from each instance's last attempt and rebuilds the
+    summary.
+- The first attempt's trajectories are kept, and so are its predictions,
+  harness report and summary (as `*.attempt1.*`).
+- A provider failure in the retry is final and is reported as a provider
+  error.
+- The summarizer now reads arm R's trajectories: exit status, attempts,
+  steps and provider-reported tokens. A provider exit status is a
+  provider error, never an Agent failure. §7 said mini-SWE-agent does not
+  record tokens; its trajectories do keep each call's usage, so arm R's
+  tokens are now reported.
+
+**Why.** Arm R ran last.
+
+- From 18:45 to 19:32 EDT on 2026-10-28, 16 of its 100 instances ended
+  with `RateLimitError`: z.ai 429 code 1308, "Usage limit reached for 5
+  hour", the Coding Plan quota, after both arm-A runs.
+  - 14 failed on their first model call.
+  - Two failed partway: `matplotlib-23299` after 20 calls and
+    `matplotlib-20826` after 28.
+  - Calls worked again afterwards: 28 instances were submitted after
+    19:32.
+- The harness graded all 16 as empty patches, so arm R's first attempt
+  scored 61/100 with them counted as failures.
+- The summary at `1fb16fa` showed 0 provider errors for arm R, because it
+  read only the harness report.
+- Arm A had no provider failures in either seed.
+- This decision was made after all three arms were graded. It leaves no
+  choice that the results could steer: the selection is mechanical, and
+  §5 and §7 already required the retry.
+
+**Effect on the run.**
+
+- Arm A is unchanged.
+- Arm R is reported from each instance's last attempt. The first-attempt
+  result (61/100, with 16 provider failures) is reported alongside it.
+- The retry runs at a different time from the first attempt, with the
+  same model, endpoint, settings and package versions.
+- Code changed after `1fb16fa`:
+  - `coder_agent/eval/mini_swe_agent.py` (new) and the summarizer;
+  - `scripts/wp1_reference_retry.sh` (new);
+  - `scripts/wp1_reference_arm.sh`, whose predictions are now built by the
+    same module, with identical output when there is no retry;
+  - their tests and this file.
+
+  The Agent loop, tools, prompts and `config.yaml` are unchanged.
