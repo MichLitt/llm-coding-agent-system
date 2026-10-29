@@ -53,6 +53,19 @@ llm:
         thinking:
           type: disabled
 
+    # DeepSeek V4.1 Flash with thinking off, as glm_5_nothink. Thinking is
+    # DeepSeek's default, and with tools it requires every later request to
+    # send back the reasoning_content, which this client does not keep.
+    deepseek_flash_nothink:
+      transport: openai
+      model: deepseek-flash
+      api_key_env: LLM_DEEPSEEK_API_KEY
+      base_url_env: LLM_DEEPSEEK_BASE_URL
+      base_url_default: https://api.deepseek.com
+      extra_body:
+        thinking:
+          type: disabled
+
 agent:
   max_steps: 15
   max_retries: 3

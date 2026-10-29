@@ -359,13 +359,15 @@ As of v0.5.2, provider configuration is managed through named profiles in `confi
 
 ### Defining profiles
 
-`config.yaml` ships with three profiles:
+`config.yaml` ships with these profiles:
 
 | Profile | Transport | Model |
 |---|---|---|
 | `minimax_m27` | anthropic | MiniMax-M2.7 |
 | `minimax_m25` | openai | MiniMax-M2.5 |
-| `glm_5` | openai | glm-5 |
+| `glm_5` | openai | glm-5.1 |
+| `glm_5_nothink` | openai | glm-5.1, thinking off |
+| `deepseek_flash_nothink` | openai | deepseek-flash, thinking off |
 
 ### Environment variables
 
@@ -379,6 +381,10 @@ LLM_MINIMAX_M27_API_KEY=your_key_here
 # glm_5
 LLM_GLM_5_API_KEY=your_key_here
 LLM_GLM_5_BASE_URL=https://api.z.ai/api/paas/v4/
+
+# deepseek_flash_nothink
+LLM_DEEPSEEK_API_KEY=your_key_here
+# LLM_DEEPSEEK_BASE_URL=https://api.deepseek.com  # optional, this is the default
 ```
 
 ### Switching profiles
