@@ -25,7 +25,8 @@ class AgentRunReport:
     llm_call_count: int | None = None
     token_usage_status: str | None = None  # "provider" | "partial" | "unavailable"
     estimated_cost_usd: float | None = None
-    wall_duration_ms: int = 0
+    # None only in an aggregate whose runs were not timed (an external agent).
+    wall_duration_ms: int | None = 0
     termination_reason: str | None = None
     git_commit: str | None = None
     preset: str | None = None
@@ -33,3 +34,6 @@ class AgentRunReport:
     # eval-only: required for task_set_id computation in the platform
     benchmark_name: str | None = None
     task_ids: list[str] = field(default_factory=list)
+    # Benchmark aggregate (one report per arm, e.g. WP1 SWE-bench Verified):
+    # share of task_ids the official grader marked resolved, 0..1.
+    resolved_rate: float | None = None
