@@ -81,6 +81,8 @@ def summarize_tool_batch(
 def apply_retry_guidance(agent: Any, state: Any, batch: Any) -> tuple[str, str]:
     combined_observation = batch.combined_observation
     if not batch.saw_nonzero_exit and not batch.saw_recoverable_tool_error:
+        if agent.retry_policy == "consecutive":
+            state.retry_count = 0
         return combined_observation, ""
 
     state.retry_steps += 1

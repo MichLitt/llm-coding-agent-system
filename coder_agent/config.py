@@ -36,6 +36,8 @@ def _load_yaml() -> dict:
 
 _Y = _load_yaml()
 
+RETRY_POLICIES = ("cumulative", "consecutive")
+
 
 @dataclass
 class ModelConfig:
@@ -66,6 +68,10 @@ class ModelConfig:
 class AgentConfig:
     max_steps: int = int(os.environ.get("CODER_MAX_STEPS", _Y.get("agent", {}).get("max_steps", 15)))
     max_retries: int = int(os.environ.get("CODER_MAX_RETRIES", _Y.get("agent", {}).get("max_retries", 3)))
+    # How the retry guard counts error steps (a failing command or a tool
+    # error) against max_retries: "cumulative" counts every one in the run;
+    # "consecutive" restarts after a step without one.
+    retry_policy: str = os.environ.get("CODER_RETRY_POLICY", _Y.get("agent", {}).get("retry_policy", "cumulative"))
     planning_mode: str = _Y.get("agent", {}).get("planning_mode", "react")
     enable_correction: bool = os.environ.get(
         "CODER_CORRECTION_ENABLED",
@@ -271,6 +277,8 @@ def validate_config(config: "Config") -> None:
         raise ValueError(f"agent.max_steps must be >= 1, got {config.agent.max_steps}")
     if config.agent.max_retries < 0:
         raise ValueError(f"agent.max_retries must be >= 0, got {config.agent.max_retries}")
+    if config.agent.retry_policy not in RETRY_POLICIES:
+        raise ValueError(f"agent.retry_policy must be one of {RETRY_POLICIES}, got {config.agent.retry_policy!r}")
     if config.tools.terminal_timeout < 1:
         raise ValueError(f"tools.terminal_timeout must be >= 1, got {config.tools.terminal_timeout}")
     if not isinstance(getattr(config.tools, "mcp_servers", []), list):

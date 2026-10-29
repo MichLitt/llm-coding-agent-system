@@ -384,6 +384,70 @@ async def test_retry_exhausted_sets_termination_reason(monkeypatch):
     assert result.termination_reason == TERMINATION_RETRY_EXHAUSTED
 
 
+def _scripted_exit_codes(monkeypatch, codes):
+    """One run_command result per step, failing where the exit code is non-zero."""
+    remaining = list(codes)
+
+    async def fake_execute_tools(tool_calls, tool_dict):
+        code = remaining.pop(0)
+        return [{"type": "tool_result", "tool_use_id": "call_1",
+                 "content": f"Exit code: {code}\nSTDOUT:\n\nSTDERR:\n{'AssertionError: boom' if code else ''}"}]
+
+    monkeypatch.setattr(agent_module, "execute_tools", fake_execute_tools)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("policy", "reason"), [("cumulative", TERMINATION_RETRY_EXHAUSTED),
+                                                ("consecutive", TERMINATION_MODEL_STOP)])
+async def test_retry_policy_decides_whether_separated_failures_add_up(monkeypatch, policy, reason):
+    # Failing, passing, failing: two error steps, never two in a row.
+    _scripted_exit_codes(monkeypatch, [1, 0, 1])
+    monkeypatch.setattr(cfg.agent, "max_retries", 1)
+    responses = [_tool_call_response()] * 3 + [_final_response("done")]
+    agent = _agent(FakeClient(responses), {"correction": True, "retry_policy": policy})
+
+    result = await agent._loop("task")
+
+    assert result.termination_reason == reason
+
+
+@pytest.mark.asyncio
+async def test_consecutive_retry_policy_still_stops_a_failure_streak(monkeypatch):
+    _scripted_exit_codes(monkeypatch, [0, 1, 1])
+    monkeypatch.setattr(cfg.agent, "max_retries", 1)
+    responses = [_tool_call_response()] * 3 + [_final_response("done")]
+    agent = _agent(FakeClient(responses), {"correction": True, "retry_policy": "consecutive"})
+
+    result = await agent._loop("task")
+
+    assert result.termination_reason == TERMINATION_RETRY_EXHAUSTED
+
+
+@pytest.mark.asyncio
+async def test_a_run_scoped_retry_policy_overrides_the_preset(monkeypatch):
+    # The SWE-bench runner passes --experiment-config as the runtime config.
+    _scripted_exit_codes(monkeypatch, [1, 0, 1])
+    monkeypatch.setattr(cfg.agent, "max_retries", 1)
+    responses = [_tool_call_response()] * 3 + [_final_response("done")]
+    agent = _agent(FakeClient(responses), {"correction": True, "retry_policy": "cumulative"},
+                   runtime_config={"retry_policy": "consecutive"})
+
+    result = await agent._loop("task")
+
+    assert agent.retry_policy == "consecutive"
+    assert result.termination_reason == TERMINATION_MODEL_STOP
+
+
+def test_unknown_retry_policy_is_rejected_when_the_agent_is_built():
+    with pytest.raises(ValueError, match="retry_policy"):
+        _agent(FakeClient([]), runtime_config={"retry_policy": "sometimes"})
+
+
+def test_default_retry_policy_is_cumulative():
+    assert cfg.agent.retry_policy == "cumulative"
+    assert _agent(FakeClient([])).retry_policy == "cumulative"
+
+
 @pytest.mark.asyncio
 async def test_recoverable_tool_error_enters_retry_path(monkeypatch):
     async def fake_execute_tools(tool_calls, tool_dict):

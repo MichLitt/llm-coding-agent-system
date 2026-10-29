@@ -9,7 +9,7 @@ from threading import Event
 from pathlib import Path
 from typing import Any
 
-from coder_agent.config import cfg
+from coder_agent.config import RETRY_POLICIES, cfg
 from coder_agent.core.agent_errors import (
     build_error_guidance,
     build_import_error_guidance,
@@ -80,6 +80,11 @@ class Agent:
             self.workspace,
             legacy_blocked_patterns=cfg.tools.blocked_commands,
         )
+        # A run-scoped override wins over the preset, as for policy_mode.
+        self.retry_policy = str(self._experiment_config.get(
+            "retry_policy", self.experiment_config.get("retry_policy", cfg.agent.retry_policy)))
+        if self.retry_policy not in RETRY_POLICIES:
+            raise ValueError(f"retry_policy must be one of {RETRY_POLICIES}, got {self.retry_policy!r}")
         self.client = client
         self.memory = memory
         self.trajectory_store = trajectory_store
