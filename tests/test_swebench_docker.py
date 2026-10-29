@@ -216,6 +216,31 @@ def test_retry_errors_reruns_infrastructure_failures_once_and_grades_each_instan
     assert (first["ran"], first["retried"]) == (4, 2)
 
 
+
+def test_a_higher_attempt_cap_lets_a_later_invocation_retry_exhausted_failures(tmp_path):
+    start_sandbox, agent_factory = _factories(tmp_path, _FixBackend())
+    starts = {"demo__calc-1": 0}
+
+    def flaky_start(instance_id, options):
+        starts[instance_id] += 1
+        if starts[instance_id] <= 2:
+            raise RuntimeError("image pull failed")
+        return start_sandbox(instance_id, options)
+
+    instances = [{"instance_id": "demo__calc-1", "problem_statement": "p"}]
+    options = {**_options(tmp_path), "retry_errors": True}
+    run_instances(instances, options, start_sandbox=flaky_start, agent_factory=agent_factory)
+    # Both attempts the default cap allows failed; a higher cap retries the
+    # instance, and once it succeeds nothing is left to retry.
+    for _ in range(2):
+        run_instances(instances, {**options, "max_attempts": 4}, start_sandbox=flaky_start, agent_factory=agent_factory)
+
+    records = [json.loads(line) for line in (tmp_path / "out/results.jsonl").read_text().splitlines()]
+    [prediction] = [json.loads(line) for line in (tmp_path / "out/predictions.jsonl").read_text().splitlines()]
+    assert starts == {"demo__calc-1": 3}
+    assert [(r["attempt"], r["error"] is None) for r in records] == [(1, False), (2, False), (3, True)]
+    assert "+    return a + b" in prediction["model_patch"]
+
 def test_runner_records_image_provenance(tmp_path):
     def start_sandbox(instance_id, options):
         root = tmp_path / "containers" / instance_id

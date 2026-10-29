@@ -15,6 +15,8 @@ Agent's dependencies. Re-running with the same output directory skips
 instances that already have a prediction. With ``--retry-errors``, an instance
 whose attempt hit an infrastructure or provider failure is run once more with
 identical settings, in the same invocation (at most two attempts in total).
+``--max-attempts`` raises that total, so a later invocation can retry an
+instance whose attempts all failed, for example once a provider quota resets.
 
 Each instance has a wall-clock cap (default 30 minutes). A run that reaches
 it is stopped at the next step boundary and counted as a budget failure: its
@@ -257,11 +259,12 @@ def run_instances(
         instances = instances[: options["stop_after"]]
     done = _completed_ids(predictions_path) & {instance["instance_id"] for instance in instances}
     attempts = _attempts(results_path)
+    max_attempts = options.get("max_attempts", MAX_ATTEMPTS)
     retry = set()
     if options.get("retry_errors"):
         retry = {
             instance_id for instance_id, history in attempts.items()
-            if needs_retry(history[-1]) and len(history) < MAX_ATTEMPTS
+            if needs_retry(history[-1]) and len(history) < max_attempts
         }
     pending = [
         instance for instance in instances
@@ -291,7 +294,7 @@ def run_instances(
         second = [
             instance for instance in instances
             if (history := attempts.get(instance["instance_id"]))
-            and needs_retry(history[-1]) and len(history) < MAX_ATTEMPTS
+            and needs_retry(history[-1]) and len(history) < max_attempts
         ]
         run_batch(second)
         retried += len(second)
@@ -323,12 +326,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--wall-cap-minutes", type=float, default=DEFAULT_WALL_CAP_SECONDS / 60)
     parser.add_argument("--retry-errors", action="store_true",
                         help="run an instance once more when an attempt hits an infrastructure or provider failure")
+    parser.add_argument("--max-attempts", type=int, default=MAX_ATTEMPTS,
+                        help="attempts per instance in total with --retry-errors, over all invocations")
     parser.add_argument("--order-seed", type=int,
                         help="process instances in a seeded random order (frozen in the manifest)")
     parser.add_argument("--stop-after", type=int,
                         help="only run the first N instances of the processing order (resuming any that are "
                              "unfinished), e.g. for a budget checkpoint")
     args = parser.parse_args(argv)
+    if args.max_attempts < 1:
+        parser.error("--max-attempts must be at least 1")
 
     instances = load_instances(args.instances)[: args.limit]
     if args.order_seed is not None:
@@ -371,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     options["retry_errors"] = args.retry_errors
     options["stop_after"] = args.stop_after
+    options["max_attempts"] = args.max_attempts
     summary = run_instances(instances, options, workers=args.workers)
     manifest["finished_at"] = time.time()
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")

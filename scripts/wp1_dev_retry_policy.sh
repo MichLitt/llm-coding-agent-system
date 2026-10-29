@@ -13,8 +13,11 @@
 #   scripts/wp1_dev_retry_policy.sh
 #
 # Each seed takes about one GLM 5-hour quota window. SEEDS=101 runs one seed;
-# re-running resumes. Overrides: SEEDS, OUT, FORMAL, WORKERS, HARNESS_PY,
-# HARNESS_WORKERS.
+# re-running resumes. A quota that runs out mid-seed leaves provider errors:
+# re-run once it resets. Provider and infrastructure failures are retried up to
+# MAX_ATTEMPTS attempts in total (default 8, two per invocation), more than the
+# formal run's two, so a quota reset does not exhaust them. Overrides: SEEDS,
+# OUT, FORMAL, WORKERS, MAX_ATTEMPTS, HARNESS_PY, HARNESS_WORKERS.
 set -euo pipefail
 source "$(dirname "$0")/wp1_lib.sh"
 
@@ -22,6 +25,7 @@ FORMAL="${FORMAL:-runs/wp1/formal}"
 OUT="${OUT:-runs/wp1/dev-consecutive}"
 SEEDS="${SEEDS:-101 202}"
 WORKERS="${WORKERS:-2}"
+MAX_ATTEMPTS="${MAX_ATTEMPTS:-8}"
 ORDER_SEED=20261029  # the formal run's processing order
 
 for arm in A-s101 A-s202 R; do
@@ -34,7 +38,10 @@ for seed in $SEEDS; do
   uv run --frozen python -m coder_agent.eval.swebench_docker --instances "$FORMAL/formal.jsonl" \
     --output "$OUT/C-s$seed" --label "wp1-dev-C-s$seed" --preset C3 --llm-profile glm_5_nothink \
     --experiment-config "{\"policy_mode\":\"legacy\",\"model_seed\":$seed,\"retry_policy\":\"consecutive\"}" \
-    --max-steps 40 --order-seed "$ORDER_SEED" --workers "$WORKERS" --retry-errors
+    --max-steps 40 --order-seed "$ORDER_SEED" --workers "$WORKERS" --retry-errors --max-attempts "$MAX_ATTEMPTS"
+  # Grade every prediction afresh: the harness skips instances that already
+  # have a report under this run ID, which a retried instance's earlier patch may.
+  rm -rf "$OUT/C-s$seed/logs/run_evaluation/wp1-dev-C-s$seed"
   wp1_grade "$OUT/C-s$seed" "wp1-dev-C-s$seed"
   arms+=(--arm "C-s$seed=$OUT/C-s$seed")
 done
