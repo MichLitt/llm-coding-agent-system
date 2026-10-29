@@ -1,0 +1,15 @@
+{
+  "run_dir": "runs/wp1/formal/A-s101",
+  "instances_measured": 25,
+  "partial_usage_instances": 0,
+  "mean_input_tokens": 75345,
+  "mean_output_tokens": 3520,
+  "instance_runs": 300,
+  "projected_input_tokens": 22603560,
+  "projected_output_tokens": 1055916,
+  "caps": {
+    "input_tokens": 45000000,
+    "output_tokens": 2000000
+  },
+  "verdict": "within_cap"
+}
