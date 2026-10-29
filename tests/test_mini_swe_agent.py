@@ -6,46 +6,16 @@ from coder_agent.eval.mini_swe_agent import main, merge_predictions, retry_ids, 
 from coder_agent.eval.swebench_summary import summarize
 
 
-def _reply(prompt, completion, cached=0):
-    usage = {"prompt_tokens": prompt, "completion_tokens": completion, "prompt_tokens_details": {"cached_tokens": cached}}
-    return {"role": "assistant", "content": "", "extra": {"response": {"usage": usage}}}
-
-
-def _trajectory(directory, instance_id, status, replies, api_calls=None):
-    path = directory / instance_id / f"{instance_id}.traj.json"
-    path.parent.mkdir(parents=True)
-    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}, *replies]
-    info = {"exit_status": status, "model_stats": {"api_calls": len(replies) if api_calls is None else api_calls}}
-    path.write_text(json.dumps({"info": info, "messages": messages}))
-
-
-def mini_arm(tmp_path):
-    """a resolved; b rate-limited, then retried; c rate-limited twice; d out of steps."""
-    run = tmp_path / "R"
-    _trajectory(run, "a__x-1", "Submitted", [_reply(100, 10, cached=60), _reply(200, 20)])
-    _trajectory(run, "b__x-2", "RateLimitError", [], api_calls=1)
-    _trajectory(run, "c__x-3", "RateLimitError", [_reply(100, 5)], api_calls=2)
-    _trajectory(run, "d__x-4", "LimitsExceeded", [_reply(50, 5)] * 3)
-    (run / "preds.json").write_text(json.dumps({
-        "a__x-1": {"model_patch": "diff a"}, "b__x-2": {"model_patch": ""},
-        "c__x-3": {"model_patch": ""}, "d__x-4": {"model_patch": ""},
-    }))
-    retry = run / "retry-1"
-    _trajectory(retry, "b__x-2", "Submitted", [_reply(300, 30)])
-    _trajectory(retry, "c__x-3", "RateLimitError", [], api_calls=1)
-    (retry / "preds.json").write_text(json.dumps({"b__x-2": {"model_patch": "diff b"}, "c__x-3": {"model_patch": ""}}))
-    return run
-
-
-def test_records_carry_exit_status_attempt_and_provider_usage(tmp_path):
-    records = trajectory_records(mini_arm(tmp_path))
+def test_records_carry_exit_status_attempt_and_provider_usage(mini_arm):
+    records = trajectory_records(mini_arm)
 
     assert [(r["instance_id"], r["attempt"], r["termination_reason"]) for r in records] == [
         ("a__x-1", 1, "Submitted"), ("b__x-2", 1, "RateLimitError"), ("c__x-3", 1, "RateLimitError"),
         ("d__x-4", 1, "LimitsExceeded"), ("b__x-2", 2, "Submitted"), ("c__x-3", 2, "RateLimitError"),
     ]
     first = records[0]
-    assert first["provider_error"] is False and first["steps"] == 2
+    assert first["provider_error"] is False and first["steps"] == 2 and first["tool_calls"] == 2
+    assert (first["agent_version"], first["model_name"]) == ("2.4.6", "openai/glm-5.1")
     assert first["usage"] == {"llm_calls": 2, "input_tokens": 300, "output_tokens": 30, "cached_input_tokens": 60,
                               "token_usage_status": "provider"}
     rate_limited = records[1]
@@ -54,12 +24,12 @@ def test_records_carry_exit_status_attempt_and_provider_usage(tmp_path):
     assert records[2]["usage"]["token_usage_status"] == "partial"  # one call failed without a reply
 
 
-def test_only_first_attempt_provider_failures_are_retried(tmp_path):
-    assert retry_ids(mini_arm(tmp_path)) == ["b__x-2", "c__x-3"]
+def test_only_first_attempt_provider_failures_are_retried(mini_arm):
+    assert retry_ids(mini_arm) == ["b__x-2", "c__x-3"]
 
 
-def test_predictions_take_each_instance_from_its_last_attempt(tmp_path, capsys):
-    run = mini_arm(tmp_path)
+def test_predictions_take_each_instance_from_its_last_attempt(mini_arm, tmp_path, capsys):
+    run = mini_arm
     rows = merge_predictions(run, "wp1-R")
     assert [(r["instance_id"], r["model_patch"]) for r in rows] == [
         ("a__x-1", "diff a"), ("b__x-2", "diff b"), ("c__x-3", ""), ("d__x-4", ""),
@@ -72,8 +42,8 @@ def test_predictions_take_each_instance_from_its_last_attempt(tmp_path, capsys):
     assert capsys.readouterr().out == "b__x-2\nc__x-3\n"
 
 
-def test_without_a_retry_predictions_match_the_first_attempt(tmp_path):
-    run = mini_arm(tmp_path)
+def test_without_a_retry_predictions_match_the_first_attempt(mini_arm):
+    run = mini_arm
     for path in sorted((run / "retry-1").rglob("*"), reverse=True):
         path.rmdir() if path.is_dir() else path.unlink()
     (run / "retry-1").rmdir()
@@ -81,11 +51,11 @@ def test_without_a_retry_predictions_match_the_first_attempt(tmp_path):
     assert all(r["attempt"] == 1 for r in trajectory_records(run))
 
 
-def test_a_mini_swe_agent_arm_is_classified_from_its_trajectories(tmp_path):
+def test_a_mini_swe_agent_arm_is_classified_from_its_trajectories(mini_arm, tmp_path):
     instances = tmp_path / "instances.jsonl"
     instances.write_text("".join(json.dumps({"instance_id": f"{c}__x-{n}", "problem_statement": "p"}) + "\n"
                                  for n, c in enumerate("abcd", start=1)))
-    run = mini_arm(tmp_path)
+    run = mini_arm
     (run / "harness_report.json").write_text(json.dumps({
         "resolved_ids": ["a__x-1", "b__x-2"], "unresolved_ids": [], "empty_patch_ids": ["c__x-3", "d__x-4"],
     }))

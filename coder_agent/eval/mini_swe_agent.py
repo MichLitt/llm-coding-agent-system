@@ -49,6 +49,9 @@ def _record(path: Path, attempt: int) -> dict[str, Any]:
         "termination_reason": info.get("exit_status"),
         "provider_error": info.get("exit_status") in PROVIDER_EXIT_STATUSES,
         "steps": len(replies),
+        "tool_calls": sum(len(m.get("tool_calls") or []) for m in replies),
+        "agent_version": info.get("mini_version"),
+        "model_name": ((info.get("config") or {}).get("model") or {}).get("model_name"),
         "usage": {
             "llm_calls": calls,
             "input_tokens": total(lambda u: u.get("prompt_tokens")),
