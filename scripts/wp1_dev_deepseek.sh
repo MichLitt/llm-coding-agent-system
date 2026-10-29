@@ -21,7 +21,9 @@ set -euo pipefail
 source "$(dirname "$0")/wp1_lib.sh"
 
 FORMAL="${FORMAL:-runs/wp1/formal}"
-OUT="${OUT:-runs/wp1/dev-deepseek}"
+# runs/wp1/dev-deepseek holds runs from before the doom-loop warning was moved
+# after the tool results: DeepSeek rejected every request after one (HTTP 400).
+OUT="${OUT:-runs/wp1/dev-deepseek-v2}"
 SEEDS="${SEEDS:-101 202}"
 WORKERS="${WORKERS:-4}"
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-8}"
