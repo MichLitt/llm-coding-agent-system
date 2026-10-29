@@ -1,0 +1,792 @@
+{
+  "description": "WP1 development check of retry_policy=consecutive (exploratory, not pre-registered). Per-instance outcomes of the formal arms and the two candidate seeds on the formal sample.",
+  "instances_file_sha256": "3e045070300bd3147cae5e9977cb830722cee50962f2a57e7ba952c5ae6d1936",
+  "per_instance": {
+    "astropy__astropy-12907": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "astropy__astropy-13398": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "astropy__astropy-14539": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "astropy__astropy-7336": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "astropy__astropy-7671": {
+      "A-s101": "unresolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-10554": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "django__django-11066": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-11087": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "django__django-11149": {
+      "A-s101": "resolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-11276": {
+      "A-s101": "resolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-11299": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-11551": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-11815": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-12125": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "django__django-12209": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-12419": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-12741": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-12965": {
+      "A-s101": "resolved",
+      "A-s202": "unresolved",
+      "C-s101": "resolved",
+      "C-s202": "not_resolved",
+      "R": "resolved"
+    },
+    "django__django-13028": {
+      "A-s101": "unresolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-13158": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-13315": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "resolved"
+    },
+    "django__django-13363": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-13410": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-13417": {
+      "A-s101": "resolved",
+      "A-s202": "unresolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-13449": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "empty_patch"
+    },
+    "django__django-13513": {
+      "A-s101": "empty_patch",
+      "A-s202": "empty_patch",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "django__django-13741": {
+      "A-s101": "resolved",
+      "A-s202": "unresolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-13786": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-13807": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "django__django-13837": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-14053": {
+      "A-s101": "resolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "django__django-14493": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "unresolved"
+    },
+    "django__django-14559": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-14631": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-15103": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-15104": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-15277": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-15315": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-15525": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-15732": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "django__django-15863": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-16100": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-16145": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-16255": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "django__django-16877": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "resolved"
+    },
+    "django__django-16901": {
+      "A-s101": "resolved",
+      "A-s202": "unresolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "matplotlib__matplotlib-20676": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "matplotlib__matplotlib-20826": {
+      "A-s101": "unresolved",
+      "A-s202": "empty_patch",
+      "C-s101": "resolved",
+      "C-s202": "not_resolved",
+      "R": "resolved"
+    },
+    "matplotlib__matplotlib-22719": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "matplotlib__matplotlib-23299": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "matplotlib__matplotlib-23314": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "matplotlib__matplotlib-24177": {
+      "A-s101": "resolved",
+      "A-s202": "empty_patch",
+      "C-s101": "resolved",
+      "C-s202": "not_resolved",
+      "R": "resolved"
+    },
+    "matplotlib__matplotlib-25287": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "matplotlib__matplotlib-26208": {
+      "A-s101": "empty_patch",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "matplotlib__matplotlib-26291": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "psf__requests-1921": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "pydata__xarray-4075": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "pydata__xarray-4629": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "pydata__xarray-4687": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "pydata__xarray-6744": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "pylint-dev__pylint-4604": {
+      "A-s101": "empty_patch",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "pylint-dev__pylint-6528": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "resolved",
+      "C-s202": "not_resolved",
+      "R": "resolved"
+    },
+    "pytest-dev__pytest-10051": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "pytest-dev__pytest-10356": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "pytest-dev__pytest-5787": {
+      "A-s101": "unresolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "pytest-dev__pytest-7490": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "pytest-dev__pytest-7521": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "pytest-dev__pytest-7571": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "scikit-learn__scikit-learn-13124": {
+      "A-s101": "resolved",
+      "A-s202": "unresolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "scikit-learn__scikit-learn-13142": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "scikit-learn__scikit-learn-13439": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "scikit-learn__scikit-learn-13496": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "scikit-learn__scikit-learn-25102": {
+      "A-s101": "unresolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "empty_patch"
+    },
+    "scikit-learn__scikit-learn-26323": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "sphinx-doc__sphinx-10614": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "empty_patch"
+    },
+    "sphinx-doc__sphinx-10673": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "empty_patch"
+    },
+    "sphinx-doc__sphinx-7590": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "sphinx-doc__sphinx-7748": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "empty_patch"
+    },
+    "sphinx-doc__sphinx-7889": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "sphinx-doc__sphinx-8548": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "empty_patch"
+    },
+    "sphinx-doc__sphinx-8551": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "not_resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "sphinx-doc__sphinx-9281": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "unresolved"
+    },
+    "sphinx-doc__sphinx-9698": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "sympy__sympy-12419": {
+      "A-s101": "unresolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "empty_patch"
+    },
+    "sympy__sympy-13031": {
+      "A-s101": "resolved",
+      "A-s202": "empty_patch",
+      "C-s101": "resolved",
+      "C-s202": "not_resolved",
+      "R": "resolved"
+    },
+    "sympy__sympy-13372": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "sympy__sympy-13480": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "sympy__sympy-13551": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "sympy__sympy-13852": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "sympy__sympy-14531": {
+      "A-s101": "resolved",
+      "A-s202": "empty_patch",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "sympy__sympy-14711": {
+      "A-s101": "resolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "sympy__sympy-18211": {
+      "A-s101": "unresolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "empty_patch"
+    },
+    "sympy__sympy-20428": {
+      "A-s101": "unresolved",
+      "A-s202": "unresolved",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "unresolved"
+    },
+    "sympy__sympy-20590": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "sympy__sympy-21612": {
+      "A-s101": "empty_patch",
+      "A-s202": "empty_patch",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "resolved"
+    },
+    "sympy__sympy-22456": {
+      "A-s101": "unresolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "sympy__sympy-23262": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "sympy__sympy-23413": {
+      "A-s101": "empty_patch",
+      "A-s202": "empty_patch",
+      "C-s101": "not_resolved",
+      "C-s202": "not_resolved",
+      "R": "empty_patch"
+    },
+    "sympy__sympy-23534": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    },
+    "sympy__sympy-24066": {
+      "A-s101": "resolved",
+      "A-s202": "resolved",
+      "C-s101": "resolved",
+      "C-s202": "resolved",
+      "R": "resolved"
+    }
+  },
+  "provider_failures_before_rerun": {
+    "C-s101": 46,
+    "C-s202": 11
+  },
+  "resolved": {
+    "A-s101": 64,
+    "A-s202": 59,
+    "C-s101": 71,
+    "C-s202": 68,
+    "R": 70
+  },
+  "schema_version": "wp1-dev-outcomes/v1",
+  "sources": {
+    "A-s101, A-s202, R": "artifacts/wp1-formal/summary.json (sha256 d4d38af4f38a0e8f036a7aa3fcda9cd987c9862b411c3daef768bc326a693572)",
+    "C-s101, C-s202": "runs/wp1/dev-consecutive/summary.json on the WSL host (2026-10-29), printed as one resolved/not-resolved character per instance in sorted id order; 'not_resolved' covers unresolved and empty patches",
+    "usage": "printed from the same file; the formal arms' figures match artifacts/wp1-formal/summary.json"
+  },
+  "termination_by_outcome": {
+    "C-s101": {
+      "loop_exception": {
+        "empty_patch": 1
+      },
+      "max_steps": {
+        "resolved": 4,
+        "unresolved": 3
+      },
+      "model_stop": {
+        "empty_patch": 1,
+        "resolved": 62,
+        "unresolved": 17
+      },
+      "retry_exhausted": {
+        "empty_patch": 1,
+        "resolved": 5,
+        "unresolved": 6
+      }
+    },
+    "C-s202": {
+      "max_steps": {
+        "empty_patch": 1,
+        "resolved": 1,
+        "unresolved": 9
+      },
+      "model_stop": {
+        "resolved": 60,
+        "unresolved": 16
+      },
+      "retry_exhausted": {
+        "empty_patch": 1,
+        "resolved": 7,
+        "unresolved": 5
+      }
+    }
+  },
+  "usage": {
+    "A-s101": {
+      "cached_input_tokens": 6696256,
+      "input_tokens": 7259776,
+      "llm_calls": 1299,
+      "output_tokens": 251384
+    },
+    "A-s202": {
+      "cached_input_tokens": 6938560,
+      "input_tokens": 7493488,
+      "llm_calls": 1258,
+      "output_tokens": 264383
+    },
+    "C-s101": {
+      "cached_input_tokens": 9171136,
+      "input_tokens": 9815776,
+      "llm_calls": 1473,
+      "output_tokens": 269046
+    },
+    "C-s202": {
+      "cached_input_tokens": 11444224,
+      "input_tokens": 12198701,
+      "llm_calls": 1555,
+      "output_tokens": 298290
+    },
+    "R": {
+      "cached_input_tokens": 13615680,
+      "input_tokens": 14651852,
+      "llm_calls": 1658,
+      "output_tokens": 366347
+    }
+  }
+}
