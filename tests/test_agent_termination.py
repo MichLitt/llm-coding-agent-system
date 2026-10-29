@@ -438,6 +438,40 @@ async def test_a_run_scoped_retry_policy_overrides_the_preset(monkeypatch):
     assert result.termination_reason == TERMINATION_MODEL_STOP
 
 
+class RecordingClient(FakeClient):
+    def __init__(self, responses):
+        super().__init__(responses)
+        self.sent = []
+
+    async def chat(self, **kwargs):
+        self.sent.append([dict(message) for message in kwargs["messages"]])
+        return await super().chat(**kwargs)
+
+
+def _assert_tool_results_follow_tool_calls(messages):
+    # OpenAI-compatible APIs such as DeepSeek reject a request otherwise (HTTP 400).
+    for index, message in enumerate(messages):
+        if message.get("role") == "assistant" and message.get("tool_calls"):
+            ids = [call["id"] for call in message["tool_calls"]]
+            following = messages[index + 1:index + 1 + len(ids)]
+            assert [(m.get("role"), m.get("tool_call_id")) for m in following] == [("tool", i) for i in ids]
+
+
+@pytest.mark.asyncio
+async def test_doom_loop_warning_comes_after_the_tool_results(monkeypatch):
+    # The same failing command twice in a row triggers the doom-loop warning.
+    _scripted_exit_codes(monkeypatch, [1, 1])
+    client = RecordingClient([_tool_call_response()] * 2 + [_final_response("done")])
+    agent = _agent(client, {"correction": True})
+
+    result = await agent._loop("task")
+
+    assert result.termination_reason == TERMINATION_MODEL_STOP
+    final_request = client.sent[-1]
+    _assert_tool_results_follow_tool_calls(final_request)
+    assert any("same failing command 2 times" in str(m.get("content")) for m in final_request)
+
+
 def test_unknown_retry_policy_is_rejected_when_the_agent_is_built():
     with pytest.raises(ValueError, match="retry_policy"):
         _agent(FakeClient([]), runtime_config={"retry_policy": "sometimes"})
@@ -1170,18 +1204,8 @@ def test_inject_approach_memory_uses_tighter_budget_after_cross_task_memory():
     assert "tool_3" in injection
 
 
-@pytest.mark.asyncio
-async def test_doom_loop_uses_error_type_key_instead_of_full_error_text():
-    agent = SimpleNamespace(
-        _experiment_config={"doom_loop_threshold": 2},
-        history=SimpleNamespace(messages=[], message_tokens=[]),
-    )
-
-    async def add_message(role, content):
-        agent.history.messages.append({"role": role, "content": content})
-        agent.history.message_tokens.append((0, 0))
-
-    agent.history.add_message = add_message
+def test_doom_loop_uses_error_type_key_instead_of_full_error_text():
+    agent = SimpleNamespace(_experiment_config={"doom_loop_threshold": 2})
     state = LoopState()
     turn = ModelTurn(
         text_content="retry",
@@ -1210,8 +1234,8 @@ async def test_doom_loop_uses_error_type_key_instead_of_full_error_text():
         detected_error="AssertionError: expected 3 == 4",
     )
 
-    await _update_failure_tracking(agent, state, turn, batch_one)
-    await _update_failure_tracking(agent, state, turn, batch_two)
+    assert _update_failure_tracking(agent, state, turn, batch_one) == ""
+    warning = _update_failure_tracking(agent, state, turn, batch_two)
 
     assert state.doom_loop_warnings_injected == 1
-    assert any("same failing command 2 times" in msg["content"] for msg in agent.history.messages)
+    assert "same failing command 2 times" in warning

@@ -534,12 +534,13 @@ def _count_compressed_observations(agent: Any, tool_results: list[dict[str, Any]
     )
 
 
-async def _update_failure_tracking(agent: Any, state: LoopState, turn: ModelTurn, batch: ToolBatchSummary) -> None:
+def _update_failure_tracking(agent: Any, state: LoopState, turn: ModelTurn, batch: ToolBatchSummary) -> str:
+    """Track repeated failing calls; return the doom-loop warning to add after the tool results, or ""."""
     batch_has_error = batch.saw_nonzero_exit or batch.saw_recoverable_tool_error
     if not batch_has_error:
         state.consecutive_identical_failures = 0
         state.last_failing_call_sig = None
-        return
+        return ""
 
     sig = f"{sorted(_tool_call_sig(tool_use) for tool_use in turn.tool_uses)}:{_error_type_key(batch.detected_error)}"
     if sig == state.last_failing_call_sig:
@@ -550,14 +551,13 @@ async def _update_failure_tracking(agent: Any, state: LoopState, turn: ModelTurn
 
     threshold = _runtime_setting(agent, "doom_loop_threshold", cfg.agent.doom_loop_threshold)
     if threshold > 0 and state.consecutive_identical_failures == threshold:
-        warning = (
+        state.doom_loop_warnings_injected += 1
+        return (
             "[System] You have issued the same failing command "
             f"{state.consecutive_identical_failures} times in a row without progress. "
             "This approach is not working. Stop and try a fundamentally different strategy."
         )
-        state.exception_stage = "history.add_doom_loop_warning"
-        await agent.history.add_message("user", warning)
-        state.doom_loop_warnings_injected += 1
+    return ""
 
 
 def _configure_task_tool_state(agent: Any, state: LoopState) -> None:
@@ -891,7 +891,7 @@ async def run_agent_loop(
                     and not str(tool_use["input"].get("path", "")).split("/")[-1].startswith("test_")
                 }
                 state.verification_recovery_impl_paths.update(edited_impl_paths)
-            await _update_failure_tracking(agent, state, turn, batch)
+            doom_loop_warning = _update_failure_tracking(agent, state, turn, batch)
             if batch.saw_nonzero_exit or batch.saw_recoverable_tool_error:
                 _remember_failed_approach(state, turn, batch, combined_observation)
             state.observations_compressed += _count_compressed_observations(agent, batch.tool_results)
@@ -1009,6 +1009,7 @@ async def run_agent_loop(
                 batch=batch,
                 parse_feedback=turn.parse_feedback,
                 correction_feedback=correction_feedback,
+                doom_loop_warning=doom_loop_warning,
             )
             _record_step_checkpoint(
                 agent,

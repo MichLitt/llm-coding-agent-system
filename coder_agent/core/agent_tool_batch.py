@@ -186,7 +186,10 @@ async def handle_tool_messages(
     batch: Any,
     parse_feedback: str,
     correction_feedback: str,
+    doom_loop_warning: str = "",
 ) -> None:
+    # Tool results first: a message between an assistant's tool calls and
+    # their results is rejected by stricter OpenAI-compatible APIs (DeepSeek).
     for tool_result in batch.tool_results:
         state.exception_stage = "history.add_tool"
         await agent.history.add_message(
@@ -194,6 +197,9 @@ async def handle_tool_messages(
             tool_result.get("content", ""),
             tool_calls=[{"id": tool_result["tool_use_id"]}],
         )
+    if doom_loop_warning:
+        state.exception_stage = "history.add_doom_loop_warning"
+        await agent.history.add_message("user", doom_loop_warning)
     if parse_feedback:
         state.exception_stage = "history.add_parse_feedback"
         await agent.history.add_message("user", parse_feedback)
