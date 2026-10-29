@@ -427,6 +427,15 @@ step checkpoints, and the EvalOps `agent/v1` report. `token_usage_status` is
 token totals and cost are `null`. Resumed runs carry usage recorded before the
 interruption.
 
+A SWE-bench evaluation arm is also reported to EvalOps as one `agent/v1`
+aggregate. `coder_agent.eval.swebench_evalops` builds it from the arm's run
+directory and its `summary.json`, with the same benchmark name and task ids
+for every arm. It sums steps, tool calls, tokens and wall time over each
+instance's last attempt, and adds the harness `resolved_rate`. A
+mini-SWE-agent arm does not time its runs, so its `wall_duration_ms` is
+`null`. Its tool success rate is also `null`: its command exit codes do not
+mean what this Agent's tool errors mean.
+
 `estimated_cost_usd` is filled only when the profile declares prices in USD per
 million tokens:
 
