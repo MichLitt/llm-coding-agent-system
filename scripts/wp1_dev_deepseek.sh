@@ -58,6 +58,11 @@ for dir in "$OUT"/DA-s*; do
     candidate+=("DC-s$seed")
   fi
 done
+# mini-SWE-agent on DeepSeek, if run: PROFILE=deepseek_flash_nothink
+# scripts/wp1_reference_arm.sh "$FORMAL/formal.jsonl" "$OUT/DR" wp1-dev-DR
+if [ -f "$OUT/DR/harness_report.json" ]; then
+  arms+=(--arm "DR=$OUT/DR")
+fi
 uv run --frozen python -m coder_agent.eval.swebench_summary --instances "$FORMAL/formal.jsonl" "${arms[@]}" \
   --output "$OUT/summary.json" --markdown "$OUT/summary.md"
 uv run --frozen python -m coder_agent.eval.swebench_pooled --summary "$OUT/summary.json" \

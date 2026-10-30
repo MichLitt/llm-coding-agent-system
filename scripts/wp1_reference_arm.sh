@@ -5,8 +5,9 @@
 #   scripts/wp1_reference_arm.sh INSTANCES_JSONL OUTPUT_DIR LABEL
 #
 # Run from llm-coding-agent-system/ on the Linux host. mini-SWE-agent gets its
-# own venv (MINI_VENV); the GLM key is read from .env and passed only through
-# the environment.
+# own venv (MINI_VENV); the key is read from .env and passed only through the
+# environment. PROFILE (default glm_5_nothink, the formal run's) picks the
+# model and endpoint, so an exploratory run can pair R with another model.
 set -euo pipefail
 source "$(dirname "$0")/wp1_lib.sh"
 
@@ -20,8 +21,13 @@ MINI_VERSION="2.4.6"
 LITELLM_VERSION="1.93.0"
 MINI_VENV="${MINI_VENV:-$HOME/mini-swe-agent-$MINI_VERSION}"
 CONFIG="scripts/wp1_mini_swe_agent.yaml"
+PROFILE="${PROFILE:-glm_5_nothink}"
 
-wp1_preflight
+if [ "$PROFILE" = glm_5_nothink ]; then
+  wp1_preflight
+else
+  wp1_dev_preflight "$PROFILE"
+fi
 if [ ! -x "$MINI_VENV/bin/mini-extra" ]; then
   uv venv --python 3.12 "$MINI_VENV"
 fi
@@ -32,14 +38,16 @@ got = {name: m.version(name) for name in ('mini-swe-agent', 'litellm')}
 want = {'mini-swe-agent': '$MINI_VERSION', 'litellm': '$LITELLM_VERSION'}
 sys.exit(0 if got == want else f'versions {got} != {want}')"
 
-API_BASE="$(uv run --frozen python -c "from coder_agent.config import resolve_llm_profile; print(resolve_llm_profile('glm_5_nothink').base_url)")"
-OPENAI_API_KEY="$(uv run --frozen python -c "from coder_agent.config import resolve_llm_profile; print(resolve_llm_profile('glm_5_nothink').api_key)")"
+API_BASE="$(uv run --frozen python -c "from coder_agent.config import resolve_llm_profile; print(resolve_llm_profile('$PROFILE').base_url)")"
+MODEL="$(uv run --frozen python -c "from coder_agent.config import resolve_llm_profile; print(resolve_llm_profile('$PROFILE').model)")"
+OPENAI_API_KEY="$(uv run --frozen python -c "from coder_agent.config import resolve_llm_profile; print(resolve_llm_profile('$PROFILE').api_key)")"
 export OPENAI_API_KEY
 export MSWEA_COST_TRACKING=ignore_errors
 
 # Importing minisweagent prints a banner first; the path is the last line.
 BASE_CONFIG="$("$MINI_VENV/bin/python" -I -c "from minisweagent.run.benchmarks.swebench import DEFAULT_CONFIG_FILE; print(DEFAULT_CONFIG_FILE)" | tail -n 1)"
-SPECS=("$BASE_CONFIG" "$CONFIG" "model.model_kwargs.api_base=$API_BASE")
+# For glm_5_nothink the model name repeats the arm config's.
+SPECS=("$BASE_CONFIG" "$CONFIG" "model.model_kwargs.api_base=$API_BASE" "model.model_name=openai/$MODEL")
 "$MINI_VENV/bin/python" -I scripts/wp1_reference_preflight.py "${SPECS[@]}"
 
 mkdir -p "$OUT"
@@ -49,7 +57,7 @@ uv pip freeze --python "$MINI_VENV/bin/python" > "$OUT/requirements.lock"
 FILTER="^($(paste -sd'|' <(python3 -c "import json, sys; [print(json.loads(l)['instance_id']) for l in open(sys.argv[1])]" "$INSTANCES")))\$"
 
 "$MINI_VENV/bin/mini-extra" swebench --subset "$DATASET" --split test --filter "$FILTER" \
-  -c "${SPECS[0]}" -c "${SPECS[1]}" -c "${SPECS[2]}" \
+  -c "${SPECS[0]}" -c "${SPECS[1]}" -c "${SPECS[2]}" -c "${SPECS[3]}" \
   -o "$OUT" -w "${WORKERS:-2}"
 
 # preds.json is keyed by instance id; the harness gets one JSONL line per
