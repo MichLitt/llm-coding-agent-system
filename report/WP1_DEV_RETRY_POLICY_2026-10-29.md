@@ -20,6 +20,13 @@ confirmatory run is worth its cost.
   - input ×1.49, of which 93% is cached (uncached input ×1.25);
   - output ×1.10;
   - LLM calls ×1.18.
+- On DeepSeek V4.1 Flash the gain was smaller and not significant: 115
+  of 200 runs against 109, +3.0 pp (95% −2 to +8, p = 0.35). There, most
+  runs the guard no longer stopped ran out of steps instead.
+- The DeepSeek runs exposed a bug that GLM had tolerated: the doom-loop
+  warning went between an assistant's tool calls and their results.
+  DeepSeek rejects that history. It is fixed (`36d6300`); the GLM arms here
+  ran with it in both arms.
 - The change was designed from this sample's failures, so the estimate
   is likely optimistic. It justifies a held-out run; it is not a result to
   claim.
@@ -193,12 +200,95 @@ after 54 instances.
 - **Summary.** The dev script's summary had dropped seeds run by an
   earlier invocation. It now includes every graded seed.
 
+## DeepSeek V4.1 Flash
+
+Does the gain carry over to another model? Arms DA (cumulative) and DC
+(consecutive) repeat A and C with profile `deepseek_flash_nothink`
+(`deepseek-flash`, thinking off) and 4 workers. Everything else is the
+same: sample, processing order, seeds, preset, step and wall caps. The
+script is `scripts/wp1_dev_deepseek.sh`, at agent `ac9d266`.
+
+**Evidence.** `artifacts/wp1-dev/deepseek-outcomes.json` and
+`deepseek-pooled.json`, transcribed from the host as for the C arms. The
+per-instance outcomes reproduce all six pair tables the host printed, and
+the pooled comparison recomputed from them matches the host's.
+
+**A bug found first.** The first DeepSeek run (seed 101) ended 4 baseline
+and 9 candidate runs with HTTP 400: "An assistant message with
+'tool_calls' must be followed by tool messages".
+
+- **Cause.** When the same failing call repeated, the doom-loop warning
+  was added to the history before the tool results.
+- **Evidence.** A read-only check on the host found that all 13 failures
+  came right after a warning, at the run's last tool step.
+- **Fix.** `36d6300` adds the warning after the results, with a
+  regression test.
+- **Scope.** That run is discarded. GLM accepted the malformed history,
+  so the GLM arms above ran with the warning misplaced, equally in both
+  arms.
+
+### Results
+
+| Seed | DA | DC | Only DA | Only DC | Exact McNemar p |
+|---|---|---|---|---|---|
+| 101 | 52 | 56 | 6 | 10 | 0.45 |
+| 202 | 57 | 59 | 6 | 8 | 0.79 |
+
+| Pooled per instance | Value |
+|---|---|
+| Resolved runs, DA / DC | 109 / 115 of 200 |
+| Difference | +3.0 pp (95% bootstrap −2 to +8) |
+| Exact sign-flip p (two-sided) | 0.35 |
+| Score difference DC − DA, by instances | +2: 3, +1: 8, 0: 81, −1: 8 |
+| Resolved in both seeds, DA / DC | 46 / 48 |
+
+No run ended in a loop exception or a provider failure.
+
+### Where the freed runs went
+
+Termination over both seeds. In parentheses: how many resolved.
+
+| | Baseline GLM | Candidate GLM | Baseline DeepSeek | Candidate DeepSeek |
+|---|---|---|---|---|
+| model_stop | 105 (91) | 156 (122) | 96 (86) | 113 (98) |
+| retry_exhausted | 90 (32) | 25 (12) | 63 (19) | 17 (6) |
+| max_steps | 3 (0) | 18 (5) | 41 (4) | 70 (11) |
+| loop_exception | 2 (0) | 1 (0) | 0 | 0 |
+
+- **GLM.** The guard stopped 65 fewer runs. About four in five of them
+  ended with the model stopping on its own.
+- **DeepSeek.** The guard stopped 46 fewer runs. Only 17 of them ended
+  with the model stopping; 29 reached the 40-step cap, most of those with
+  an empty or failing patch.
+- **The binding limit differs.** On DeepSeek it is the step budget, not
+  the guard: even its baseline reaches the cap in about one run in five,
+  against one in seventy on GLM.
+
+### Cost
+
+| | DA | DC | Ratio |
+|---|---|---|---|
+| Input | 32.75M | 44.88M | ×1.37 |
+| Cached | 96.0% | 96.5% | |
+| Uncached input | 1.32M | 1.58M | ×1.19 |
+| Output | 576k | 645k | ×1.12 |
+| LLM calls | 3,661 | 4,364 | ×1.19 |
+| Input per resolved run | 300k | 390k | ×1.30 |
+
+At DeepSeek's peak list prices (CNY per million tokens: cache hit 0.04,
+miss 2, output 8), the 400 runs cost about ¥18.6. Off-peak prices are
+half.
+
 ## Limitations
 
 - **Selection.** The policy was designed from this sample's failures, so
   the +8 pp estimate is optimistic.
-- **One model and one endpoint.** Everything ran on glm-5.1 with thinking
-  off, through the GLM Coding Plan endpoint.
+- **Model dependence.** The +8 pp is glm-5.1's, with thinking off,
+  through the GLM Coding Plan endpoint. On DeepSeek V4.1 Flash the effect
+  was +3 pp and not significant.
+- **A bug in the GLM arms.** The GLM arms ran with the doom-loop warning
+  misplaced (fixed in `36d6300`). It affected both arms, but the GLM
+  numbers are not from the current code.
 - **Transcription.** The C arms' outcomes were transcribed from the host,
   not copied with their hashes.
 - **Timing.** The instances rerun after a quota reset ran hours after the
@@ -223,10 +313,12 @@ per-instance standard deviation of 0.34 with two seeds.
 The 200 × 2 design therefore needs about 11,200 calls, around eight GLM
 Coding Plan windows.
 
+**Model.** The effect to confirm is glm-5.1's, so a held-out run should
+use glm-5.1, at the current code, in both arms. DeepSeek's binding limit
+is the step budget, which calls for a different change.
+
 **Open decisions.**
 
 - the sample size;
 - whether to keep the Coding Plan quota or move to a pay-as-you-go
-  endpoint;
-- whether to stay on glm-5.1, since a different model would test a
-  different question.
+  endpoint.

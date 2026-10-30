@@ -1,0 +1,62 @@
+{
+  "baseline": [
+    "DA-s101",
+    "DA-s202"
+  ],
+  "baseline_resolved_runs": 109,
+  "by_baseline_score": {
+    "0": {
+      "candidate_resolved_runs": 10,
+      "instances": 37
+    },
+    "1": {
+      "candidate_resolved_runs": 18,
+      "instances": 17
+    },
+    "2": {
+      "candidate_resolved_runs": 87,
+      "instances": 46
+    }
+  },
+  "candidate": [
+    "DC-s101",
+    "DC-s202"
+  ],
+  "candidate_resolved_runs": 115,
+  "n_instances": 100,
+  "outcomes": {
+    "DA-s101": {
+      "not_resolved": 48,
+      "resolved": 52
+    },
+    "DA-s202": {
+      "not_resolved": 43,
+      "resolved": 57
+    },
+    "DC-s101": {
+      "not_resolved": 44,
+      "resolved": 56
+    },
+    "DC-s202": {
+      "not_resolved": 41,
+      "resolved": 59
+    }
+  },
+  "rate_difference": 0.03,
+  "rate_difference_bootstrap95": [
+    -0.02,
+    0.08
+  ],
+  "resolved_in_every_run": {
+    "baseline": 46,
+    "candidate": 48
+  },
+  "runs_per_instance": 2,
+  "score_differences": {
+    "-1": 8,
+    "0": 81,
+    "1": 8,
+    "2": 3
+  },
+  "sign_flip_p": 0.3493
+}
