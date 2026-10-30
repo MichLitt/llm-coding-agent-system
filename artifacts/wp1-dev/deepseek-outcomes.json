@@ -1,618 +1,723 @@
 {
-  "agent_commit": "ac9d266",
-  "description": "WP1 development check of retry_policy=consecutive on DeepSeek V4.1 Flash (profile deepseek_flash_nothink), after the doom-loop ordering fix (agent ac9d266). Exploratory, not pre-registered. Formal sample, formal processing order, seeds 101 and 202.",
+  "agent_commit": {
+    "DA, DC": "ac9d266",
+    "DR": "07eae78"
+  },
+  "description": "WP1 development check of retry_policy=consecutive on DeepSeek V4.1 Flash (profile deepseek_flash_nothink), after the doom-loop ordering fix (agent ac9d266). Exploratory, not pre-registered. Formal sample, formal processing order, seeds 101 and 202. Arm DR is mini-SWE-agent 2.4.6 (scripts/wp1_reference_arm.sh with PROFILE=deepseek_flash_nothink, agent 07eae78), one run.",
   "instances_file_sha256": "3e045070300bd3147cae5e9977cb830722cee50962f2a57e7ba952c5ae6d1936",
   "per_instance": {
     "astropy__astropy-12907": {
       "DA-s101": "not_resolved",
       "DA-s202": "resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "resolved"
     },
     "astropy__astropy-13398": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "astropy__astropy-14539": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "astropy__astropy-7336": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "astropy__astropy-7671": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-10554": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "django__django-11066": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-11087": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "django__django-11149": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "resolved"
     },
     "django__django-11276": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-11299": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-11551": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-11815": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "resolved"
     },
     "django__django-12125": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "resolved"
     },
     "django__django-12209": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "not_resolved"
     },
     "django__django-12419": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-12741": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-12965": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "resolved"
     },
     "django__django-13028": {
       "DA-s101": "not_resolved",
       "DA-s202": "resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "resolved"
     },
     "django__django-13158": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "not_resolved"
     },
     "django__django-13315": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-13363": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-13410": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-13417": {
       "DA-s101": "not_resolved",
       "DA-s202": "resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "django__django-13449": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "django__django-13513": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "django__django-13741": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-13786": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-13807": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-13837": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "resolved"
     },
     "django__django-14053": {
       "DA-s101": "not_resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-14493": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-14559": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-14631": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-15103": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-15104": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-15277": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-15315": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-15525": {
       "DA-s101": "not_resolved",
       "DA-s202": "resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-15732": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "django__django-15863": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-16100": {
       "DA-s101": "not_resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "not_resolved"
     },
     "django__django-16145": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-16255": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-16877": {
       "DA-s101": "resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "django__django-16901": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "matplotlib__matplotlib-20676": {
       "DA-s101": "not_resolved",
       "DA-s202": "resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "not_resolved"
     },
     "matplotlib__matplotlib-20826": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "matplotlib__matplotlib-22719": {
       "DA-s101": "not_resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "matplotlib__matplotlib-23299": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "matplotlib__matplotlib-23314": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "resolved"
     },
     "matplotlib__matplotlib-24177": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "resolved"
     },
     "matplotlib__matplotlib-25287": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "matplotlib__matplotlib-26208": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "matplotlib__matplotlib-26291": {
       "DA-s101": "not_resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "psf__requests-1921": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "pydata__xarray-4075": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "pydata__xarray-4629": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "pydata__xarray-4687": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "pydata__xarray-6744": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "pylint-dev__pylint-4604": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "pylint-dev__pylint-6528": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "not_resolved"
     },
     "pytest-dev__pytest-10051": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "resolved"
     },
     "pytest-dev__pytest-10356": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "resolved"
     },
     "pytest-dev__pytest-5787": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "not_resolved"
     },
     "pytest-dev__pytest-7490": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "pytest-dev__pytest-7521": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "pytest-dev__pytest-7571": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "scikit-learn__scikit-learn-13124": {
       "DA-s101": "resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "resolved"
     },
     "scikit-learn__scikit-learn-13142": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "scikit-learn__scikit-learn-13439": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "scikit-learn__scikit-learn-13496": {
       "DA-s101": "resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "scikit-learn__scikit-learn-25102": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "scikit-learn__scikit-learn-26323": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "sphinx-doc__sphinx-10614": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "sphinx-doc__sphinx-10673": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "not_resolved"
     },
     "sphinx-doc__sphinx-7590": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "sphinx-doc__sphinx-7748": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "sphinx-doc__sphinx-7889": {
       "DA-s101": "not_resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "resolved"
     },
     "sphinx-doc__sphinx-8548": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "sphinx-doc__sphinx-8551": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "not_resolved"
     },
     "sphinx-doc__sphinx-9281": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "sphinx-doc__sphinx-9698": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "sympy__sympy-12419": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "sympy__sympy-13031": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "sympy__sympy-13372": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "sympy__sympy-13480": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "sympy__sympy-13551": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "sympy__sympy-13852": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "sympy__sympy-14531": {
       "DA-s101": "resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "not_resolved"
     },
     "sympy__sympy-14711": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "sympy__sympy-18211": {
       "DA-s101": "resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "resolved"
     },
     "sympy__sympy-20428": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "sympy__sympy-20590": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "sympy__sympy-21612": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "sympy__sympy-22456": {
       "DA-s101": "resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "sympy__sympy-23262": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "sympy__sympy-23413": {
       "DA-s101": "not_resolved",
       "DA-s202": "not_resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "not_resolved"
+      "DC-s202": "not_resolved",
+      "DR": "not_resolved"
     },
     "sympy__sympy-23534": {
       "DA-s101": "resolved",
       "DA-s202": "resolved",
       "DC-s101": "resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     },
     "sympy__sympy-24066": {
       "DA-s101": "not_resolved",
       "DA-s202": "resolved",
       "DC-s101": "not_resolved",
-      "DC-s202": "resolved"
+      "DC-s202": "resolved",
+      "DR": "resolved"
     }
   },
   "resolved": {
     "DA-s101": 52,
     "DA-s202": 57,
     "DC-s101": 56,
-    "DC-s202": 59
+    "DC-s202": 59,
+    "DR": 64
   },
   "schema_version": "wp1-dev-outcomes/v1",
   "sources": {
     "DA-s101, DC-s101, DA-s202, DC-s202": "runs/wp1/dev-deepseek-v2/summary.json on the WSL host, printed as one resolved/not-resolved character per instance in sorted id order; 'not_resolved' covers unresolved and empty patches. The outcomes reproduce all six pair tables of the host's summary.md.",
+    "DR": "the same file after arm R was added; its outcomes reproduce its four pair tables. The harness reported 1 ambiguous failure.",
     "usage": "printed from the same file"
   },
   "termination_by_outcome": {
@@ -682,6 +787,19 @@
         "resolved": 3,
         "unresolved": 3
       }
+    },
+    "DR": {
+      "LimitsExceeded": {
+        "empty_patch": 23
+      },
+      "RepeatedFormatError": {
+        "empty_patch": 1
+      },
+      "Submitted": {
+        "empty_patch": 1,
+        "resolved": 64,
+        "unresolved": 11
+      }
     }
   },
   "usage": {
@@ -708,6 +826,16 @@
       "input_tokens": 23367620,
       "llm_calls": 2231,
       "output_tokens": 344769
+    },
+    "DR": {
+      "cached_input_tokens": 21630464,
+      "input_tokens": 22708474,
+      "llm_calls": 2018,
+      "output_tokens": 408357,
+      "token_usage_status": {
+        "partial": 1,
+        "provider": 99
+      }
     }
   }
 }

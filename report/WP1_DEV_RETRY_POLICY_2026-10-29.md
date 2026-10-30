@@ -23,6 +23,9 @@ confirmatory run is worth its cost.
 - On DeepSeek V4.1 Flash the gain was smaller and not significant: 115
   of 200 runs against 109, +3.0 pp (95% −2 to +8, p = 0.35). There, most
   runs the guard no longer stopped ran out of steps instead.
+- mini-SWE-agent on DeepSeek resolved 64%. On that model both of our
+  configurations stay below it: the baseline averages 54.5% and the
+  candidate 57.5%. On glm-5.1 the candidate matched it.
 - The DeepSeek runs exposed a bug that GLM had tolerated: the doom-loop
   warning went between an assistant's tool calls and their results.
   DeepSeek rejects that history. It is fixed (`36d6300`); the GLM arms here
@@ -264,6 +267,33 @@ Termination over both seeds. In parentheses: how many resolved.
   the guard: even its baseline reaches the cap in about one run in five,
   against one in seventy on GLM.
 
+### Against mini-SWE-agent
+
+Arm DR is arm R on DeepSeek: mini-SWE-agent 2.4.6 with the same settings,
+one run (`PROFILE=deepseek_flash_nothink scripts/wp1_reference_arm.sh`, at
+`07eae78`). It resolved 64 of 100.
+
+| Model | mini-SWE-agent | Baseline, mean of 2 seeds | Candidate, mean of 2 seeds |
+|---|---|---|---|
+| glm-5.1 | 70 | 61.5 | 69.5 |
+| DeepSeek V4.1 Flash | 64 | 54.5 | 57.5 |
+
+| Pair | Both | Only first | Only DR | Exact McNemar p |
+|---|---|---|---|---|
+| DA-s101 vs DR | 47 | 5 | 17 | 0.017 |
+| DA-s202 vs DR | 51 | 6 | 13 | 0.17 |
+| DC-s101 vs DR | 49 | 7 | 15 | 0.13 |
+| DC-s202 vs DR | 50 | 9 | 14 | 0.40 |
+
+- **The step cap binds there too.** mini-SWE-agent also runs out of steps
+  more often on DeepSeek: 23 of its runs hit the 40-call limit, against 8
+  on glm-5.1.
+- **A different consequence.** A run that hits the limit submits nothing,
+  so all 23 have empty patches. Our Agent keeps the working-tree diff at
+  the cap, and 11 of the candidate's 70 capped runs resolved.
+- **Data quality.** The harness reported one ambiguous failure, and one
+  instance has partial token usage.
+
 ### Cost
 
 | | DA | DC | Ratio |
@@ -276,8 +306,15 @@ Termination over both seeds. In parentheses: how many resolved.
 | Input per resolved run | 300k | 390k | ×1.30 |
 
 At DeepSeek's peak list prices (CNY per million tokens: cache hit 0.04,
-miss 2, output 8), the 400 runs cost about ¥18.6. Off-peak prices are
-half.
+miss 2, output 8), the 400 runs cost about ¥18.6, and arm DR's 100 about
+¥6.3. Off-peak prices are half.
+
+| Per run | DA | DC | DR |
+|---|---|---|---|
+| Input | 164k | 224k | 227k |
+| LLM calls | 18.3 | 21.8 | 20.2 |
+| Output | 2.9k | 3.2k | 4.1k |
+| Input per resolved run | 300k | 390k | 355k |
 
 ## Limitations
 
