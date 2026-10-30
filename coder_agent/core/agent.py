@@ -16,7 +16,12 @@ from coder_agent.core.agent_errors import (
     build_verification_guidance,
 )
 from coder_agent.core.agent_loop import run_agent_loop
-from coder_agent.core.agent_prompt import SYSTEM_PROMPT, _build_system_prompt
+from coder_agent.core.agent_prompt import (
+    PROMPT_PROFILES,
+    SYSTEM_PROMPT,
+    _build_swebench_system_prompt,
+    _build_system_prompt,
+)
 from coder_agent.core.agent_types import (
     TERMINATION_LOOP_EXCEPTION,
     TERMINATION_MAX_STEPS,
@@ -40,6 +45,25 @@ from coder_agent.tools.base import Tool
 from coder_agent.tools.execute import execute_tools
 from coder_agent.tools.policy import ToolPolicy
 from coder_agent.tools.mcp import MCPServerConfig, MCPStdioClient, discover_mcp_tools
+
+# Run-scoped switches of the v0.8.1 SWE-bench harness changes. All are off by
+# default (report/IMPROVEMENT_PLAN_v0.8.1-swe-harness.md, section 3).
+ERROR_SIGNALS = ("exit_code", "semantic")
+_BOOL_SETTINGS = ("edit_lock", "step_budget_notices", "finish_check")
+_COUNT_SETTINGS = ("max_observation_chars", "max_tool_calls_per_reply")
+
+
+def _validate_runtime_settings(settings: dict[str, Any]) -> None:
+    # A misspelled value would otherwise fall back to the default silently.
+    if settings.get("error_signals", "exit_code") not in ERROR_SIGNALS:
+        raise ValueError(f"error_signals must be one of {ERROR_SIGNALS}, got {settings['error_signals']!r}")
+    for key in _BOOL_SETTINGS:
+        if key in settings and not isinstance(settings[key], bool):
+            raise ValueError(f"{key} must be true or false, got {settings[key]!r}")
+    for key in _COUNT_SETTINGS:
+        value = settings.get(key, 0)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{key} must be a non-negative integer (0 is off), got {value!r}")
 
 
 class Agent:
@@ -85,6 +109,11 @@ class Agent:
             "retry_policy", self.experiment_config.get("retry_policy", cfg.agent.retry_policy)))
         if self.retry_policy not in RETRY_POLICIES:
             raise ValueError(f"retry_policy must be one of {RETRY_POLICIES}, got {self.retry_policy!r}")
+        _validate_runtime_settings(self._experiment_config)
+        self.prompt_profile = str(self._experiment_config.get(
+            "prompt_profile", self.experiment_config.get("prompt_profile", "default")))
+        if self.prompt_profile not in PROMPT_PROFILES:
+            raise ValueError(f"prompt_profile must be one of {PROMPT_PROFILES}, got {self.prompt_profile!r}")
         self.client = client
         self.memory = memory
         self.trajectory_store = trajectory_store
@@ -94,14 +123,7 @@ class Agent:
         self.preset_name = preset_name
         self._owns_run_state_store = owns_run_state_store
 
-        if system is not None:
-            self.system = system
-        else:
-            self.system = _build_system_prompt(
-                planning_mode=self.experiment_config.get("planning_mode", cfg.agent.planning_mode),
-                enable_correction=self.experiment_config.get("correction", cfg.agent.enable_correction),
-                workspace=str(self.workspace),
-            )
+        self.system = system if system is not None else self._build_system()
 
         self.history = MessageHistory(
             model=self._model_cfg.model,
@@ -126,12 +148,17 @@ class Agent:
             if field.name != "context_window_tokens"
         }
 
-    def reset(self) -> None:
-        self.system = _build_system_prompt(
+    def _build_system(self) -> str:
+        if self.prompt_profile == "swebench":
+            return _build_swebench_system_prompt(workspace=str(self.workspace))
+        return _build_system_prompt(
             planning_mode=self.experiment_config.get("planning_mode", cfg.agent.planning_mode),
             enable_correction=self.experiment_config.get("correction", cfg.agent.enable_correction),
             workspace=str(self.workspace),
         )
+
+    def reset(self) -> None:
+        self.system = self._build_system()
         self.history = MessageHistory(
             model=self._model_cfg.model,
             system=self.system,

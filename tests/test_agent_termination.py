@@ -542,7 +542,7 @@ async def test_retry_policy_blocks_switching_files_before_rerun(monkeypatch):
             body = "AssertionError: boom" if exit_code == 1 else ""
             return [{
                 "type": "tool_result",
-                "tool_use_id": "call_run",
+                "tool_use_id": tool_calls[0]["id"],
                 "content": f"Exit code: {exit_code}\nSTDOUT:\n{body}\nSTDERR:\n",
             }]
         executed_paths.extend(call["input"].get("path", "") for call in tool_calls)
@@ -623,7 +623,7 @@ async def test_verification_recovery_allows_authorized_test_edit(monkeypatch):
             run_calls["count"] += 1
             return [{
                 "type": "tool_result",
-                "tool_use_id": "call_run",
+                "tool_use_id": tool_calls[0]["id"],
                 "content": "Exit code: 0\nSTDOUT:\n\nSTDERR:\n",
             }]
         executed_paths.extend(call["input"].get("path", "") for call in tool_calls)

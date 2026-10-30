@@ -12,11 +12,24 @@ from coder_agent.core.agent_turns import build_action_dict
 from coder_agent.core.agent_types import TERMINATION_VERIFICATION_PASSED, TurnResult, VerificationHook
 
 
+def is_uninformative_exit(content: str, exit_code: int) -> bool:
+    """A nonzero exit that reports nothing wrong.
+
+    A search with no match prints nothing and exits 1, and a reader such as
+    ``head`` that stops a pipe early makes it exit 141 (SIGPIPE) under pipefail.
+    """
+    if exit_code == 141:
+        return True
+    body = content.split("STDOUT:", 1)[-1]
+    return not body.replace("STDERR:", "", 1).strip()
+
+
 def summarize_tool_batch(
     tool_results: list[dict[str, Any]],
     *,
     parse_errors: list[str],
     summary_cls: type[Any],
+    semantic_exits: bool = False,
 ) -> Any:
     combined_observation = "\n---\n".join(
         tool_result.get("content", "") for tool_result in tool_results
@@ -53,6 +66,8 @@ def summarize_tool_batch(
         content = str(tool_result.get("content", ""))
         exit_code = extract_exit_code(content)
         if exit_code is None or exit_code == 0:
+            continue
+        if semantic_exits and is_uninformative_exit(content, exit_code):
             continue
         saw_nonzero_exit = True
         failure_text = extract_combined_failure_text(content)

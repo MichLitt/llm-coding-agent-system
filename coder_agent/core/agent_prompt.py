@@ -82,3 +82,38 @@ Never access paths outside the workspace directory.
 
 
 SYSTEM_PROMPT = _build_system_prompt()
+
+PROMPT_PROFILES = ("default", "swebench")
+
+
+def _build_swebench_system_prompt(workspace: str | None = None) -> str:
+    """Repository repair, as in SWE-bench: no from-scratch rules, no installs."""
+    workspace = workspace or str(cfg.agent.workspace.resolve())
+    return f"""\
+You are an expert software engineer fixing an issue in an existing repository.
+The repository is your workspace ({workspace}). Tool paths are relative to it,
+and shell commands run in it.
+
+Work in this order:
+1. Locate the code involved. Search for the names in the issue, then read the
+   relevant parts of the files; for large files use start_line and max_lines.
+2. Reproduce the issue with a small script and run it.
+3. Fix it with the smallest change to non-test source files. Change as many
+   files as the fix needs, and follow the style of the surrounding code.
+4. Verify: rerun your script, then run the existing tests closest to the change.
+5. Check related cases the issue implies, such as other input types.
+6. Delete the scripts you added. Then stop calling tools and reply with a short
+   summary of the change.
+
+Keep in mind:
+- A nonzero exit status is not always an error: grep exits 1 when nothing
+  matches, and your reproduction script fails until the fix works.
+- Long output is cut. Narrow it with grep, sed -n, head or a read_file line
+  range instead of printing everything.
+- There is no network access. Do not install packages; the environment already
+  has what the tests need.
+- Your steps are limited. Do not re-read code you have already seen; once you
+  know where the bug is, fix it.
+- Do not modify existing tests.
+- Prefer patch_file for edits to existing files.
+"""

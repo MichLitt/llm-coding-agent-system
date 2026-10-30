@@ -20,7 +20,7 @@ from coder_agent.core.checkpoint import (
     system_prompt_sha256,
     workspace_fingerprint,
 )
-from coder_agent.core.context import compress_observation
+from coder_agent.core.context import compress_observation, validate_tool_call_sequence
 from coder_agent.core.usage import (
     UsageTotals,
     client_pricing,
@@ -38,6 +38,7 @@ from coder_agent.core.agent_turns import (
     add_assistant_tool_call_message,
     build_action_dict,
     check_retry_edit_policy,
+    clean_text_content,
     handle_completion_turn,
     handle_parse_only_turn,
     handle_retry_edit_policy_violation,
@@ -99,6 +100,12 @@ class LoopState:
     usage_client: Any = None
     usage_start: UsageTotals | None = None
     resume_mode: str | None = None
+    # For the finish check: files changed so far, whether a command ran after
+    # the latest change, and which checks were already sent.
+    edited_paths: set[str] = field(default_factory=set)
+    ran_after_edit: bool = False
+    finish_checks_sent: set[str] = field(default_factory=set)
+    step_budget_notices: int = 0
 
 
 @dataclass
@@ -450,16 +457,70 @@ def _apply_resume(
 
 
 def _remove_messages_with_prefix(history: Any, prefix: str) -> None:
-    kept_pairs = [
-        (
-            message,
-            history.message_tokens[index] if index < len(history.message_tokens) else (0, 0),
-        )
-        for index, message in enumerate(history.messages)
-        if not str(message.get("content", "")).startswith(prefix)
+    history.messages = [
+        message for message in history.messages if not str(message.get("content", "")).startswith(prefix)
     ]
-    history.messages = [message for message, _ in kept_pairs]
-    history.message_tokens = [tokens for _, tokens in kept_pairs]
+    history.recount_tokens()
+
+
+def _step_budget_notice(agent: Any, step: int, max_steps: int) -> str:
+    if not _runtime_setting(agent, "step_budget_notices", False):
+        return ""
+    remaining = max_steps - step + 1  # this step included
+    if remaining == max(5, round(0.3 * max_steps)):
+        return (
+            f"[Step budget] {remaining} of {max_steps} steps left. If you have not changed the source yet, "
+            "make the fix now; explore further only if you still cannot locate the bug."
+        )
+    if remaining == 4:
+        return (
+            f"[Step budget] {remaining} steps left. Verify your change once and finish with a short summary; "
+            "the files as they are now are your answer."
+        )
+    return ""
+
+
+def _track_edits_and_runs(state: LoopState, tool_uses: list[dict[str, Any]], tool_results: list[dict[str, Any]]) -> None:
+    results = {str(result.get("tool_use_id", "")): result for result in tool_results}
+    for tool_use in tool_uses:
+        result = results.get(str(tool_use.get("id", "")), {})
+        if tool_use["name"] in {"write_file", "patch_file"} and not result.get("is_error"):
+            state.edited_paths.add(str(tool_use.get("input", {}).get("path", "")))
+            state.ran_after_edit = False
+        elif tool_use["name"] == "run_command" and state.edited_paths:
+            state.ran_after_edit = True
+
+
+def _finish_check(agent: Any, state: LoopState, verification_hook: Any) -> str:
+    """One reminder of each kind before the model may stop (no external verifier)."""
+    if verification_hook is not None or not _runtime_setting(agent, "finish_check", False):
+        return ""
+    if state.edited_paths and not state.ran_after_edit and "unverified" not in state.finish_checks_sent:
+        state.finish_checks_sent.add("unverified")
+        changed = ", ".join(sorted(state.edited_paths)[:5])
+        return (
+            f"[Finish check] You changed {changed} but have not run anything since. Run your reproduction "
+            "script or the closest existing tests to check the change, then finish."
+        )
+    if not state.edited_paths and "no_edit" not in state.finish_checks_sent:
+        state.finish_checks_sent.add("no_edit")
+        return (
+            "[Finish check] You have not changed any file. If the issue needs a source change, make it now; "
+            "if it does not, reply with the reason."
+        )
+    return ""
+
+
+def _cap_tool_calls(agent: Any, tool_uses: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Calls past the per-reply cap are answered without running them."""
+    cap = int(_runtime_setting(agent, "max_tool_calls_per_reply", 0) or 0)
+    if not cap or len(tool_uses) <= cap:
+        return tool_uses
+    message = f"Error: not run: at most {cap} tool calls run per reply. Issue the rest in later replies."
+    return tool_uses[:cap] + [
+        {"id": tool_use["id"], "name": "__budget_error__", "input": {"message": message}}
+        for tool_use in tool_uses[cap:]
+    ]
 
 
 def _single_line_excerpt(value: Any, *, limit: int) -> str:
@@ -489,8 +550,7 @@ def _inject_approach_memory(agent: Any, state: LoopState) -> None:
     if len(injection) > max_chars:
         injection = injection[: max_chars - 3].rstrip() + "..."
 
-    agent.history.messages.insert(0, {"role": "user", "content": injection})
-    agent.history.message_tokens.insert(0, (0, 0))
+    agent.history.insert_message(0, {"role": "user", "content": injection})
 
 
 async def _maybe_compact_history(agent: Any, state: LoopState) -> None:
@@ -693,10 +753,18 @@ async def run_agent_loop(
                 state.approach_memory_injections += 1
 
             await add_decomposer_progress(agent, state)
+            budget_notice = _step_budget_notice(agent, state.steps, effective_max_steps)
+            if budget_notice:
+                state.exception_stage = "history.add_step_budget_notice"
+                await agent.history.add_message("user", budget_notice)
+                state.step_budget_notices += 1
 
+            state.exception_stage = "history.validate"
+            messages = agent.history.format_for_api()
+            validate_tool_call_sequence(messages)
             state.exception_stage = "llm.chat"
             response = await agent.client.chat(
-                messages=agent.history.format_for_api(),
+                messages=messages,
                 system=agent.system,
                 tools=[tool.to_dict() for tool in agent.tools],
                 on_token=token_printer.on_token,
@@ -722,6 +790,28 @@ async def run_agent_loop(
                 continue
 
             if not turn.tool_uses:
+                finish_check = _finish_check(agent, state, verification_hook)
+                if finish_check:
+                    state.exception_stage = "history.add_finish_check"
+                    thought = clean_text_content(turn.text_content)
+                    await agent.history.add_message("assistant", thought or "[completion without tools]")
+                    await agent.history.add_message("user", finish_check)
+                    record_trajectory_step(
+                        agent, state, thought=thought, action=None, observation=finish_check, timestamp=step_start,
+                    )
+                    _record_step_checkpoint(
+                        agent,
+                        run_state_store,
+                        run_id,
+                        state,
+                        thought=turn.text_content,
+                        observation=finish_check,
+                        tool_call_count=0,
+                        had_error=False,
+                        step_tokens=_step_tokens(agent, step_usage_start),
+                        step_duration_ms=int((time.time() - step_start) * 1000),
+                    )
+                    continue
                 completion_result = await handle_completion_turn(
                     agent,
                     state,
@@ -796,7 +886,7 @@ async def run_agent_loop(
             )
 
             state.exception_stage = "tools.execute"
-            tool_results = await execute_tools_fn(turn.tool_uses, agent.tool_dict)
+            tool_results = await execute_tools_fn(_cap_tool_calls(agent, turn.tool_uses), agent.tool_dict)
             if cancel_requested():
                 _record_step_checkpoint(
                     agent,
@@ -812,6 +902,7 @@ async def run_agent_loop(
                 )
                 return cancelled_result()
             _sync_tool_state(agent, state)
+            _track_edits_and_runs(state, turn.tool_uses, tool_results)
             state.successful_tool_calls += sum(1 for tool_result in tool_results if not tool_result.get("is_error"))
             _record_tool_audit(
                 run_state_store,
@@ -829,6 +920,7 @@ async def run_agent_loop(
                 tool_results,
                 parse_errors=turn.parse_errors,
                 summary_cls=ToolBatchSummary,
+                semantic_exits=_runtime_setting(agent, "error_signals", "exit_code") == "semantic",
             )
             if any(tool_use["name"] in {"write_file", "patch_file", "run_command"} for tool_use in turn.tool_uses):
                 state.verification_recovery_action_seen = True

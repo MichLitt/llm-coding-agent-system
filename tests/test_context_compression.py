@@ -3,7 +3,13 @@
 import pytest
 
 from coder_agent.core import Agent
-from coder_agent.core.context import MessageHistory, compress_observation
+from coder_agent.core.context import (
+    HistoryProtocolError,
+    MessageHistory,
+    compress_observation,
+    estimate_tokens,
+    validate_tool_call_sequence,
+)
 from coder_agent.tools.base import Tool
 
 
@@ -87,114 +93,76 @@ class _SummaryClient:
 
 
 @pytest.mark.asyncio
-async def test_message_tokens_parallel_after_mixed_adds():
+async def test_every_message_carries_its_estimated_size():
     history = _make_history()
-    await history.add_message("user", "hello")
-    await history.add_message(
-        "assistant",
-        "hi",
-        usage={"input_tokens": 10, "output_tokens": 5},
-    )
-    await history.add_message("tool", "tool result", tool_calls=[{"id": "c1"}])
-    await history.add_message(
-        "assistant",
-        "done",
-        usage={"input_tokens": 20, "output_tokens": 8},
-    )
+    await history.add_message("user", "x" * 30)
+    await history.add_message("assistant", "y" * 9, tool_calls=[{"id": "c1", "type": "function"}])
+    await history.add_message("tool", "z" * 60, tool_calls=[{"id": "c1"}])
 
     assert len(history.messages) == len(history.message_tokens)
+    assert history.message_tokens[0] == (10, 0)
+    assert history.message_tokens[1][0] > 3  # the tool calls count too
+    assert history.message_tokens[2] == (20, 0)
+    assert history.total_tokens == estimate_tokens("system prompt") + sum(t for t, _ in history.message_tokens)
+
+
+async def _task_with_turns(history, turns):
+    await history.add_message("user", "the task " * 10)
+    for index in range(turns):
+        call = {"id": f"c{index}", "type": "function", "function": {"name": "run_command", "arguments": "{}"}}
+        await history.add_message("assistant", "", tool_calls=[call])
+        await history.add_message("tool", "output " * 50, tool_calls=[{"id": f"c{index}"}])
+        await history.add_message("user", f"feedback {index}")
 
 
 @pytest.mark.asyncio
-async def test_non_assistant_messages_get_zero_tokens():
-    history = _make_history()
-    await history.add_message("user", "question")
-    await history.add_message("tool", "result", tool_calls=[{"id": "c1"}])
-
-    assert history.message_tokens[0] == (0, 0)
-    assert history.message_tokens[1] == (0, 0)
-
-
-@pytest.mark.asyncio
-async def test_assistant_message_gets_correct_tokens():
-    history = _make_history()
-    await history.add_message(
-        "assistant",
-        "answer",
-        usage={"input_tokens": 30, "output_tokens": 15},
-    )
-
-    assert history.message_tokens[0] == (30, 15)
-    assert history.total_tokens == len("system prompt") // 4 + 45
-
-
-@pytest.mark.asyncio
-async def test_truncate_keeps_lists_parallel():
-    # Force context to be tiny so truncation fires
-    history = _make_history(context_window_tokens=10)
-    history.total_tokens = 200  # artificially high
-
-    await history.add_message("user", "user message")
-    await history.add_message(
-        "assistant",
-        "assistant message",
-        usage={"input_tokens": 50, "output_tokens": 25},
-    )
+async def test_truncate_drops_whole_tool_call_turns_and_keeps_the_task():
+    history = _make_history(context_window_tokens=400)
+    await _task_with_turns(history, 6)
 
     history.truncate()
 
+    assert history.total_tokens <= 400
+    assert history.messages[0]["content"].startswith("the task")
+    assert history.messages[1] == {"role": "user", "content": "[Earlier history has been truncated.]"}
+    validate_tool_call_sequence(history.messages)
+    assert history.messages[-1]["content"] == "feedback 5"
     assert len(history.messages) == len(history.message_tokens)
+    assert history.total_tokens == estimate_tokens("system prompt") + sum(t for t, _ in history.message_tokens)
 
 
 @pytest.mark.asyncio
-async def test_truncate_does_not_subtract_assistant_tokens_for_user_message():
-    """
-    Regression: before the fix, popping a user message at index 0 would also
-    pop message_tokens[0], which was the first assistant message's token count.
-    After the fix, user messages carry (0, 0) so total_tokens only decreases by 0.
-    """
+async def test_truncate_keeps_the_latest_turn_even_over_the_window():
     history = _make_history(context_window_tokens=10)
-
-    await history.add_message("user", "question")
-    await history.add_message(
-        "assistant",
-        "answer",
-        usage={"input_tokens": 20, "output_tokens": 10},
-    )
-    # Force total_tokens above the window threshold
-    history.total_tokens = 200
-
-    # tokens attributed to the assistant message
-    assistant_tokens = 30
+    await _task_with_turns(history, 1)
 
     history.truncate()
 
-    # After popping the user message (0 tokens), total_tokens should drop by 0.
-    # After also popping the assistant message (30 tokens), it drops by 30.
-    # In either case the lists must remain parallel.
-    assert len(history.messages) == len(history.message_tokens)
+    assert [m["role"] for m in history.messages] == ["user", "assistant", "tool", "user"]
 
 
 @pytest.mark.asyncio
-async def test_truncation_notice_keeps_lists_parallel():
-    """After truncation notice is inserted, lists remain parallel."""
-    history = _make_history(context_window_tokens=10)
-    history.total_tokens = 200
-
-    await history.add_message("user", "q1")
-    await history.add_message("user", "q2")
-    await history.add_message(
-        "assistant",
-        "a",
-        usage={"input_tokens": 5, "output_tokens": 3},
-    )
+async def test_truncate_does_nothing_within_the_window():
+    history = _make_history()
+    await _task_with_turns(history, 3)
+    before = list(history.messages)
 
     history.truncate()
 
-    assert len(history.messages) == len(history.message_tokens)
-    # The truncation notice is a user message — check its token entry is (0,0)
-    if history.messages and history.messages[0].get("content") == "[Earlier history has been truncated.]":
-        assert history.message_tokens[0] == (0, 0)
+    assert history.messages == before
+
+
+def test_tool_call_sequence_validation():
+    call = {"role": "assistant", "content": "", "tool_calls": [{"id": "a"}, {"id": "b"}]}
+    validate_tool_call_sequence([{"role": "user", "content": "task"}, call,
+                                 {"role": "tool", "tool_call_id": "b"}, {"role": "tool", "tool_call_id": "a"}])
+    with pytest.raises(HistoryProtocolError, match="followed by results"):
+        validate_tool_call_sequence([call, {"role": "user", "content": "warning"},
+                                     {"role": "tool", "tool_call_id": "a"}, {"role": "tool", "tool_call_id": "b"}])
+    with pytest.raises(HistoryProtocolError, match="followed by results"):
+        validate_tool_call_sequence([call, {"role": "tool", "tool_call_id": "a"}])
+    with pytest.raises(HistoryProtocolError, match="does not follow"):
+        validate_tool_call_sequence([{"role": "user", "content": "task"}, {"role": "tool", "tool_call_id": "a"}])
 
 
 @pytest.mark.asyncio

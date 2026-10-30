@@ -83,7 +83,8 @@ def check_retry_edit_policy(agent: Any, state: Any, tool_uses: list[dict[str, An
         return ""
 
     recovery_mode = getattr(state, "recovery_mode", "none")
-    if recovery_mode == "tool_error":
+    edit_lock = getattr(agent, "_experiment_config", {}).get("edit_lock", True)
+    if recovery_mode == "tool_error" and edit_lock:
         if state.retry_edit_target is None:
             state.retry_edit_target = distinct_paths[0]
         if any(path != state.retry_edit_target for path in distinct_paths):

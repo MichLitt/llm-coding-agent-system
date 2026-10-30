@@ -323,6 +323,20 @@ uv run python -m coder_agent eval --benchmark custom --preset C3 --config-label 
 Anthropic-compatible profiles preserve `model_seed` as experiment metadata but
 do not send it because that transport has no portable seed parameter.
 
+Repository-repair runs (SWE-bench) can switch on these run-scoped changes,
+all off by default (`report/IMPROVEMENT_PLAN_v0.8.1-swe-harness.md`):
+
+| Key | Values | Effect |
+|---|---|---|
+| `retry_policy` | `cumulative` (default), `consecutive` | Whether only consecutive error steps count toward `agent.max_retries` |
+| `error_signals` | `exit_code` (default), `semantic` | `semantic`: a nonzero exit with no output, or SIGPIPE (141), is not an error |
+| `edit_lock` | `true` (default), `false` | After a failed command, whether edits are held to one file until a rerun |
+| `prompt_profile` | `default`, `swebench` | `swebench`: a repository-repair system prompt and workflow |
+| `step_budget_notices` | `false` (default), `true` | Notes at 30% of the steps left and at 4 left |
+| `finish_check` | `false` (default), `true` | Before stopping, one reminder to verify an unchecked change, or to make one |
+| `max_observation_chars` | `0` (off) or a size | Longer tool results keep their head and tail |
+| `max_tool_calls_per_reply` | `0` (off) or a count | Calls past the cap are answered without running |
+
 Labeled eval runs now write run-scoped metadata into the manifest, including `run_id`, `workspace_path`, `workspace_mode`, and the requested `task_ids`. Resume only works when the benchmark, preset/config snapshots, LLM profile, and task set still match the original run.
 
 SWE-bench Lite smoke example:
