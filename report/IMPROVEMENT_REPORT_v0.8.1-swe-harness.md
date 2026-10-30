@@ -74,7 +74,7 @@ Plan: `IMPROVEMENT_PLAN_v0.8.1-swe-harness.md`.
 - Behavior differs only in two cases:
   - when a history exceeds the context window (180k estimated tokens), where truncation now actually runs;
   - when a history is invalid, which now fails before the request instead of being sent.
-- WP1 requests averaged about 6k (GLM) to 11k (DeepSeek) input tokens; the largest single request is not yet measured (plan section 6).
+- In WP1 the median request was 5–9k tokens and the largest 72k (plan section 6), far below the 180k window.
 - The one known invalid history (the doom-loop warning, fixed in `36d6300`) can no longer occur.
 - A C3/C4/C6 rebaseline is formally triggered by the rules in `AGENTS.md`. No accepted baseline number is expected to move.
 
