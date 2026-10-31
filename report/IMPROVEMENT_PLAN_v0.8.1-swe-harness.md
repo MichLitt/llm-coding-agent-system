@@ -1,10 +1,10 @@
 # Improvement Plan v0.8.1-swe-harness — SWE-bench harness 短板修复
 
-**状态：** In progress  
-**计划日期：** 2026-10-30  
-**当前代码版本：** agent `07eae78`（含 consecutive 重试策略、doom-loop 顺序修复）  
-**上一阶段证据：** `WP1_RESULTS_2026-10-28.md`（正式实验）、`WP1_DEV_RETRY_POLICY_2026-10-29.md`（开发检查，GLM 与 DeepSeek）  
-**计划目标：** 修复 WP1 暴露的 harness 短板，在新的开发集上用两个种子验证整体改动是否有提升；有提升再做消融、GLM 复核和留出集预注册。
+- **状态：** dev2 已完成（2026-10-31）：H − B = −1.5 pp（p = 0.79），无提升；结果与决策见 `IMPROVEMENT_REPORT_v0.8.1-swe-harness.md`
+- **计划日期：** 2026-10-30
+- **当前代码版本：** agent `07eae78`（含 consecutive 重试策略、doom-loop 顺序修复）
+- **上一阶段证据：** `WP1_RESULTS_2026-10-28.md`（正式实验）、`WP1_DEV_RETRY_POLICY_2026-10-29.md`（开发检查，GLM 与 DeepSeek）
+- **计划目标：** 修复 WP1 暴露的 harness 短板，在新的开发集上用两个种子验证整体改动是否有提升；有提升再做消融、GLM 复核和留出集预注册。
 
 > 原则：协议与健壮性修复对两组同时生效；改变 Agent 行为的改动全部放在运行级开关后面，默认关闭，C3 默认行为不变。开发集与确认集分开，确认集在本阶段不得使用。
 

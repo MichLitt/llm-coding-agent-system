@@ -1,6 +1,6 @@
 # Improvement Report — v0.8.1-swe-harness
 
-Status: implemented and tested locally; the dev2 evaluation has not run.
+Status: implemented and tested; dev2 evaluated on DeepSeek V4.1 Flash (2026-10-31): no improvement.
 Plan: `IMPROVEMENT_PLAN_v0.8.1-swe-harness.md`.
 
 ## What changed
@@ -82,6 +82,74 @@ Plan: `IMPROVEMENT_PLAN_v0.8.1-swe-harness.md`.
 
 - Off by default, so C3 behavior is unchanged.
 
-## Results
+## Results (dev2, DeepSeek V4.1 Flash)
 
-To be added after the dev2 runs (plan section 4).
+Exploratory, not pre-registered. Run on the WSL host with
+`scripts/wp1_dev_harness.sh`, at agent `8fcd364`.
+
+**Evidence** (`artifacts/wp1-dev2/`)
+
+- `dev2-sample.json`: the 100 ids and the host files' hashes. The exclusion list rebuilt from the formal meta matches the host's hash.
+- `dev2-outcomes.json`: per-instance outcomes, usage and termination of the five arms.
+  - They were transcribed from the host's `summary.json` (sha256 `eb6a18a6…`).
+  - They reproduce all ten pair tables the host printed.
+- `dev2-pooled.json`: the pooled comparison, recomputed from the outcomes. It matches the host's `pooled.json` (`334c6998…`).
+
+### Resolved
+
+| Arm | Seed 101 | Seed 202 | Mean |
+|---|---|---|---|
+| B (C3 + consecutive) | 50 | 53 | 51.5 |
+| H (B + every v0.8.1 switch) | 51 | 49 | 50.0 |
+| R (mini-SWE-agent) | 65 | | 65 |
+
+**H against B, pooled per instance.** 100 against 103 of 200 runs: −1.5 pp (95% bootstrap −8.5 to +6.0), exact sign-flip p = 0.79.
+
+- **Score differences, H − B, by instances:**
+  - better: +2 on 5, +1 on 8;
+  - equal: 69;
+  - worse: −1 on 15, −2 on 3.
+- **H on the instances B resolved in both seeds (43):**
+  - it resolved 73 of 86 runs, so it lost 13 runs B had;
+  - on the 40 B never resolved, it resolved 12 of 80.
+
+### Where the runs went
+
+Termination over both seeds. In parentheses: how many resolved.
+
+| | B | H |
+|---|---|---|
+| model_stop | 115 (87) | 134 (90) |
+| max_steps | 74 (12) | 56 (5) |
+| retry_exhausted | 11 (4) | 10 (5) |
+
+- **Fewer runs hit the cap.** H turned 18 capped runs into runs that stopped on their own.
+- **But the extra stops were mostly wrong.**
+  - Model stops with a wrong patch rose from 28 to 43.
+  - Capped runs that still resolved fell from 12 to 5: these runs keep editing to the end and leave a correct diff.
+- **The step-budget notices and the finish check push a model to stop.** On DeepSeek that trades a capped run for a premature, unverified-enough fix, which costs instances that B resolves reliably. Section 6 of the plan had already found that nearly every run verifies after its last edit, so the finish check could not add much.
+
+### Cost
+
+| | B | H | R |
+|---|---|---|---|
+| Input, both seeds | 47.3M | 42.4M (−10%) | 24.2M (one run) |
+| Output | 752k | 638k (−15%) | 440k |
+| LLM calls | 4,481 | 4,508 | 2,203 |
+
+At DeepSeek's peak list prices dev2 cost about ¥29, R included.
+
+### Against mini-SWE-agent
+
+- **The gap.** R resolved 65, against 50–53 for every one of our runs (McNemar p = 0.002–0.03 per pair). The gap matches the one on the formal sample (64 against 54.5).
+- **Capability is not the limit; reliability is.** Our four runs together resolved 67 instances and R resolved 65; only 9 instances were R's alone. Our per-run rate is the problem.
+- **Its capped runs are all empty patches.** R hit its 40-call limit 20 times, every time with an empty patch.
+
+## Decision
+
+Per plan section 4.3, a result below zero calls for ablation, not a GLM recheck or a held-out run.
+
+- **The data point to two sources.**
+  - The stopping nudges (`step_budget_notices`, `finish_check`): extra wrong stops and lost easy instances.
+  - The distance to mini-SWE-agent in how the loop treats failures. C3's correction hints fire on about 10% of steps, most after expected failures. They cannot simply be turned off: the C2 preset ends a run at its first nonzero exit.
+- **Rebaseline.** No accepted number changes, and H stays off by default.
