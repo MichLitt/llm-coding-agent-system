@@ -230,3 +230,47 @@ async def test_calls_past_the_per_reply_cap_are_answered_without_running(monkeyp
     assert seen == [["run_command", "run_command", "__budget_error__"]]
     validate_tool_call_sequence(client.sent[-1])
     assert any("at most 2 tool calls" in str(m.get("content")) for m in client.sent[-1])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hints", [True, False])
+async def test_correction_hints_switch_keeps_the_run_going_without_hints(monkeypatch, hints):
+    _fake_tools(monkeypatch, [FAILURE])
+    client = ScriptedClient([_calls(_run(0, "python repro.py")), _final()])
+
+    result = await _agent(client, {"correction_hints": hints})._loop("task")
+
+    assert result.termination_reason == TERMINATION_MODEL_STOP
+    # The hint reaches the model as a user message after the tool result.
+    texts = [str(m.get("content")) for m in client.sent[-1] if m.get("role") == "user"]
+    assert any(t.startswith("Previous command failed") for t in texts) is hints
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("policy", "reason"), [("cumulative", TERMINATION_RETRY_EXHAUSTED), ("off", TERMINATION_MODEL_STOP)])
+async def test_retry_policy_off_never_stops_a_run_for_failures(monkeypatch, policy, reason):
+    monkeypatch.setattr(cfg.agent, "max_retries", 1)
+    _fake_tools(monkeypatch, [FAILURE] * 4)
+    client = ScriptedClient([_calls(_run(i, f"python repro.py --case {i}")) for i in range(4)] + [_final()])
+
+    result = await _agent(client, {"retry_policy": policy})._loop("task")
+
+    assert result.termination_reason == reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("threshold", "warned"), [(2, True), (0, False)])
+async def test_doom_loop_threshold_zero_turns_the_warning_off(monkeypatch, threshold, warned):
+    _fake_tools(monkeypatch, [FAILURE, FAILURE])
+    client = ScriptedClient([_calls(_run(0, "python repro.py")), _calls(_run(1, "python repro.py")), _final()])
+
+    await _agent(client, {"doom_loop_threshold": threshold})._loop("task")
+
+    assert any("same failing command" in str(m.get("content")) for m in client.sent[-1]) is warned
+
+
+@pytest.mark.parametrize("settings", [{"correction_hints": "no"}, {"doom_loop_threshold": -1},
+                                      {"retry_policy": "never"}])
+def test_invalid_ablation_settings_are_rejected(settings):
+    with pytest.raises(ValueError):
+        _agent(ScriptedClient([]), settings)

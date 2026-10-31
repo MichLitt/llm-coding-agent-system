@@ -32,6 +32,9 @@ Plan: `IMPROVEMENT_PLAN_v0.8.1-swe-harness.md`.
 | `finish_check: true` | `agent_loop.py` | When the model stops without an external verifier, at most two reminders, each once per run:<br>• changed files with no command run since → verify first;<br>• nothing changed → make the change or say why not. |
 | `max_observation_chars: N` | `context.py` | Tool results over N characters keep their head and tail, with a note on how to narrow them. |
 | `max_tool_calls_per_reply: N` | `agent_loop.py` | Calls past N in one reply get an error result without running. |
+| `correction_hints: false` (ablation round) | `agent_tool_batch.py` | No correction hint or "Previous command failed" feedback after a failure; the run goes on. |
+| `retry_policy: off` (ablation round) | `config.py`, `agent_loop.py` | Failures never end the run. |
+| `doom_loop_threshold: 0` | `agent_loop.py` (existing) | No doom-loop warning; the value is now validated. |
 
 **About the switches**
 

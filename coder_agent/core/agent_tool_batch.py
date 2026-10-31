@@ -115,6 +115,7 @@ def apply_retry_guidance(agent: Any, state: Any, batch: Any) -> tuple[str, str]:
     correction_feedback = ""
     if (
         correction_enabled
+        and getattr(agent, "_experiment_config", {}).get("correction_hints", True)
         and guidance
         and (batch.detected_error != state.last_error_type or repeated_error)
         and state.retry_count <= cfg.agent.max_retries

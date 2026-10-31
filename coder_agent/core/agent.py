@@ -49,8 +49,8 @@ from coder_agent.tools.mcp import MCPServerConfig, MCPStdioClient, discover_mcp_
 # Run-scoped switches of the v0.8.1 SWE-bench harness changes. All are off by
 # default (report/IMPROVEMENT_PLAN_v0.8.1-swe-harness.md, section 3).
 ERROR_SIGNALS = ("exit_code", "semantic")
-_BOOL_SETTINGS = ("edit_lock", "step_budget_notices", "finish_check")
-_COUNT_SETTINGS = ("max_observation_chars", "max_tool_calls_per_reply")
+_BOOL_SETTINGS = ("edit_lock", "step_budget_notices", "finish_check", "correction_hints")
+_COUNT_SETTINGS = ("max_observation_chars", "max_tool_calls_per_reply", "doom_loop_threshold")
 
 
 def _validate_runtime_settings(settings: dict[str, Any]) -> None:

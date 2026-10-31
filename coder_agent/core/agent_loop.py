@@ -1053,7 +1053,7 @@ async def run_agent_loop(
                     )
                 )
 
-            if state.retry_count > cfg.agent.max_retries:
+            if agent.retry_policy != "off" and state.retry_count > cfg.agent.max_retries:
                 retry_message = f"Error: max retries ({cfg.agent.max_retries}) exceeded for {state.last_error_type}"
                 _record_step_checkpoint(
                     agent,

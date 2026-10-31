@@ -36,7 +36,7 @@ def _load_yaml() -> dict:
 
 _Y = _load_yaml()
 
-RETRY_POLICIES = ("cumulative", "consecutive")
+RETRY_POLICIES = ("cumulative", "consecutive", "off")
 
 
 @dataclass

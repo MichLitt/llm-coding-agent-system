@@ -328,7 +328,7 @@ all off by default (`report/IMPROVEMENT_PLAN_v0.8.1-swe-harness.md`):
 
 | Key | Values | Effect |
 |---|---|---|
-| `retry_policy` | `cumulative` (default), `consecutive` | Whether only consecutive error steps count toward `agent.max_retries` |
+| `retry_policy` | `cumulative` (default), `consecutive`, `off` | Whether only consecutive error steps count toward `agent.max_retries`; `off` never stops a run for errors |
 | `error_signals` | `exit_code` (default), `semantic` | `semantic`: a nonzero exit with no output, or SIGPIPE (141), is not an error |
 | `edit_lock` | `true` (default), `false` | After a failed command, whether edits are held to one file until a rerun |
 | `prompt_profile` | `default`, `swebench` | `swebench`: a repository-repair system prompt and workflow |
@@ -336,6 +336,8 @@ all off by default (`report/IMPROVEMENT_PLAN_v0.8.1-swe-harness.md`):
 | `finish_check` | `false` (default), `true` | Before stopping, one reminder to verify an unchecked change, or to make one |
 | `max_observation_chars` | `0` (off) or a size | Longer tool results keep their head and tail |
 | `max_tool_calls_per_reply` | `0` (off) or a count | Calls past the cap are answered without running |
+| `correction_hints` | `true` (default), `false` | `false`: no correction hint or feedback after a failure, and the run goes on |
+| `doom_loop_threshold` | a count, `0` is off | Repeated identical failures before a doom-loop warning |
 
 Labeled eval runs now write run-scoped metadata into the manifest, including `run_id`, `workspace_path`, `workspace_mode`, and the requested `task_ids`. Resume only works when the benchmark, preset/config snapshots, LLM profile, and task set still match the original run.
 
